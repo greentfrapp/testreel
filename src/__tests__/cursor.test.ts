@@ -263,6 +263,29 @@ describe('cursor event tracker', () => {
     })
   })
 
+  describe('createCursorTracker with startTime', () => {
+    it('uses provided startTime for event timestamps', async () => {
+      // Start time 500ms in the past → first event should have time ≈ 0.5
+      const tracker = createCursorTracker(Date.now() - 500)
+      const page = mockPage({ x: 100, y: 200 })
+      await tracker.triggerRipple(page)
+
+      const events = tracker.getEvents()
+      expect(events).toHaveLength(1)
+      expect(events[0].time).toBeGreaterThanOrEqual(0.4)
+      expect(events[0].time).toBeLessThan(1.0)
+    })
+
+    it('defaults to Date.now() when no startTime provided', () => {
+      const tracker = createCursorTracker()
+      tracker.setZoom(1, 600)
+
+      const events = tracker.getEvents()
+      expect(events[0].time).toBeGreaterThanOrEqual(0)
+      expect(events[0].time).toBeLessThan(0.1)
+    })
+  })
+
   describe('initCursorTracker resets state', () => {
     it('clears events from a previous session', async () => {
       const page = mockPage({ x: 0, y: 0 })

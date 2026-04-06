@@ -190,7 +190,7 @@ export async function runPostProcessPipeline(
     )
   })
 
-  const inputArgs: string[] = ['-i', videoPath] // index 0
+  const inputArgs: string[] = ['-i', videoPath]
   let inputCount = 1
   const filterSegments: string[] = []
   let currentLabel = '0:v'

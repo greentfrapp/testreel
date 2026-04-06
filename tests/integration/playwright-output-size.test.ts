@@ -5,7 +5,7 @@
  * expected dimensions, with padding adjusted automatically.
  *
  * Run:
- *   pnpm exec playwright test --config examples/playwright.config.ts playwright-output-size
+ *   pnpm exec playwright test --config tests/integration/playwright.config.ts playwright-output-size
  */
 
 import { execSync } from 'child_process'

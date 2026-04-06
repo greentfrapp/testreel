@@ -194,6 +194,24 @@ export async function record(
   }
 
   const page = await context.newPage()
+
+  // Normalize cursor options — enabled by default
+  const cursorConfig = def.cursor
+  const cursorEnabled =
+    cursorConfig === undefined ||
+    cursorConfig === true ||
+    (typeof cursorConfig === 'object' && cursorConfig.enabled !== false)
+  const cursorOptions: CursorOptions | undefined = cursorEnabled
+    ? typeof cursorConfig === 'object'
+      ? cursorConfig
+      : {}
+    : undefined
+
+  // Create cursor tracker immediately after page creation so its time base
+  // aligns with the video recording start. Moving this after navigation would
+  // shift all cursor/ripple overlay timestamps earlier than the screencast.
+  const cursorTracker = cursorEnabled ? createCursorTracker() : undefined
+
   const needsScrollRestore =
     setupScroll && (setupScroll.x !== 0 || setupScroll.y !== 0)
 
@@ -274,20 +292,6 @@ export async function record(
         ),
       )
   }
-
-  // Normalize cursor options — enabled by default
-  const cursorConfig = def.cursor
-  const cursorEnabled =
-    cursorConfig === undefined ||
-    cursorConfig === true ||
-    (typeof cursorConfig === 'object' && cursorConfig.enabled !== false)
-  const cursorOptions: CursorOptions | undefined = cursorEnabled
-    ? typeof cursorConfig === 'object'
-      ? cursorConfig
-      : {}
-    : undefined
-
-  const cursorTracker = cursorEnabled ? createCursorTracker() : undefined
 
   // Determine if frame compositing will be active (for FFmpeg zoom)
   const hasFrameForZoom = !!(def.chrome || def.background)

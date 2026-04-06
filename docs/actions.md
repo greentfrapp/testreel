@@ -34,12 +34,29 @@ Click an element.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `selector` | `string` | yes | Selector for the target element. |
+| `zoom` | `number` | — | Zoom into the element at this scale before clicking. Automatically zooms back out after. |
 
 ```json
 { "action": "click", "selector": "button.submit" }
 ```
 
 When cursor is enabled, the cursor animates to the element and a ripple effect plays on click.
+
+### Click with zoom
+
+Add `zoom` to zoom into the click target, then automatically zoom back out after the click:
+
+```json
+{ "action": "click", "selector": ".todo .toggle", "zoom": 2 }
+```
+
+When consecutive click steps both have `zoom`, the intermediate zoom-out is skipped and the camera pans directly between targets:
+
+```json
+{ "action": "click", "selector": ".item-1", "zoom": 2 },
+{ "action": "click", "selector": ".item-2", "zoom": 2 },
+{ "action": "click", "selector": ".item-3", "zoom": 2 }
+```
 
 ## type
 

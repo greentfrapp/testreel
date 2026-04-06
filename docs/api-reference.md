@@ -84,7 +84,7 @@ Returned by `recordPage()`. Provides cursor-animated interaction methods.
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `click` | `(selector, options?) => Promise<void>` | Click with animated cursor + ripple |
+| `click` | `(selector, options?) => Promise<void>` | Click with animated cursor + ripple. Options: `{ timeout, zoom, zoomOut }` |
 | `type` | `(selector, text, options?) => Promise<void>` | Type character-by-character (delay: 80ms default, clear: select-all first) |
 | `fill` | `(selector, text, options?) => Promise<void>` | Set input value instantly (no animation) |
 | `hover` | `(selector, options?) => Promise<void>` | Move cursor to element without clicking |
@@ -376,9 +376,9 @@ Wait for a network response. Requires `urlPattern` (URL substring to match).
 | `style` | `'default' \| 'pointer' \| 'text' \| 'touch'` | `'default'` | Cursor image style. `'touch'` shows a centered circle cursor for mobile UIs |
 | `size` | `number` | `24` | Cursor size in pixels |
 | `color` | `string` | — | Cursor color (hex) |
-| `rippleColor` | `string` | — | Click ripple color |
-| `rippleSize` | `number` | — | Ripple radius in pixels |
-| `transitionMs` | `number` | `350` | Cursor movement duration |
+| `rippleColor` | `string` | `'rgba(0, 0, 0, 0.4)'` | Click ripple color |
+| `rippleSize` | `number` | `100` | Ripple radius in pixels. Set to `0` to disable ripples. |
+| `transitionMs` | `number` | — | Override cursor movement duration. Omit for speed-based (500 px/s, clamped 100–600 ms). |
 
 ### `WindowChromeOptions`
 

@@ -37,6 +37,8 @@ export interface RecordPageOptions {
   speed?: number
   outputFormat?: OutputFormat
   keepIntermediates?: boolean
+  /** Epoch ms when video recording started (page creation time). Used to align cursor tracker with video. */
+  videoStartedAt?: number
 }
 
 export interface PageRecorder {
@@ -143,7 +145,9 @@ export async function recordPage(
       : {}
     : undefined
 
-  const cursorTracker = cursorEnabled ? createCursorTracker() : undefined
+  const cursorTracker = cursorEnabled
+    ? createCursorTracker(options.videoStartedAt)
+    : undefined
   const zoomState = createZoomState()
 
   // Determine if FFmpeg will handle zoom (when frame compositing is active)
@@ -162,6 +166,7 @@ export async function recordPage(
   const stepTimings: StepTiming[] = []
   const stepTimerStart = Date.now()
   let stopped = false
+  let pendingZoomOut = false
 
   // Helpers for cursor
   async function moveCursor(selector: SelectorOrLocator): Promise<void> {
@@ -186,12 +191,25 @@ export async function recordPage(
     })
   }
 
+  async function flushZoomOut(): Promise<void> {
+    if (pendingZoomOut) {
+      pendingZoomOut = false
+      await recorder.zoom({ scale: 1 })
+    }
+  }
+
   const recorder: PageRecorder = {
     page,
 
     async click(selector, opts) {
       const start = (Date.now() - stepTimerStart) / 1000
       const timeout = opts?.timeout ?? DEFAULT_SELECTOR_TIMEOUT
+
+      // Flush pending zoom-out unless this click also has zoom
+      if (!opts?.zoom) {
+        await flushZoomOut()
+      }
+
       await awaitSelector(page, selector, timeout)
 
       // Skip cursor move when zoom is set — zoom will move it
@@ -204,16 +222,17 @@ export async function recordPage(
         await recorder.zoom({ selector, scale: opts.zoom })
       }
 
-      await ripple()
       const center = await getScreenCenter(page, selector)
+      await ripple()
+      await page.waitForTimeout(90)
       if (center) {
         await page.mouse.click(center.x, center.y)
       }
       await page.waitForTimeout(DEFAULT_PAUSE_AFTER)
 
-      // Zoom out after click+pause (skip if zoomOut is false)
+      // Defer zoom-out — will be flushed by the next non-zoom action
       if (opts?.zoom && opts.zoom > 1 && opts?.zoomOut !== false) {
-        await recorder.zoom({ scale: 1 })
+        pendingZoomOut = true
       }
 
       recordTiming(start)
@@ -221,6 +240,7 @@ export async function recordPage(
 
     async type(selector, text, opts) {
       const start = (Date.now() - stepTimerStart) / 1000
+      await flushZoomOut()
       const timeout = opts?.timeout ?? DEFAULT_SELECTOR_TIMEOUT
       await awaitSelector(page, selector, timeout)
       await moveCursor(selector)
@@ -240,6 +260,7 @@ export async function recordPage(
 
     async fill(selector, text, opts) {
       const start = (Date.now() - stepTimerStart) / 1000
+      await flushZoomOut()
       const timeout = opts?.timeout ?? DEFAULT_SELECTOR_TIMEOUT
       await awaitSelector(page, selector, timeout)
       await moveCursor(selector)
@@ -252,6 +273,7 @@ export async function recordPage(
 
     async hover(selector, opts) {
       const start = (Date.now() - stepTimerStart) / 1000
+      await flushZoomOut()
       const timeout = opts?.timeout ?? DEFAULT_SELECTOR_TIMEOUT
       await awaitSelector(page, selector, timeout)
       await moveCursor(selector)
@@ -265,6 +287,7 @@ export async function recordPage(
 
     async scroll(opts) {
       const start = (Date.now() - stepTimerStart) / 1000
+      await flushZoomOut()
       const baseDuration = 600
       const speedMultiplier = opts?.scrollSpeed ?? 1
       const duration = baseDuration / speedMultiplier
@@ -429,6 +452,7 @@ export async function recordPage(
 
     async keyboard(key) {
       const start = (Date.now() - stepTimerStart) / 1000
+      await flushZoomOut()
       await page.keyboard.press(key)
       await page.waitForTimeout(DEFAULT_PAUSE_AFTER)
       recordTiming(start)
@@ -436,6 +460,7 @@ export async function recordPage(
 
     async navigate(url) {
       const start = (Date.now() - stepTimerStart) / 1000
+      pendingZoomOut = false
       zoomState.scale = 1
       zoomState.tx = 0
       zoomState.ty = 0
@@ -460,6 +485,7 @@ export async function recordPage(
       if (stopped) {
         throw new Error('PageRecorder.stop() has already been called.')
       }
+      await flushZoomOut()
       stopped = true
 
       // Final screenshot

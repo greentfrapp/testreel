@@ -7,7 +7,7 @@
  * `testreelPage.page`.
  *
  * Run:
- *   pnpm exec playwright test --config examples/playwright.config.ts playwright-context-sharing
+ *   pnpm exec playwright test --config tests/integration/playwright.config.ts playwright-context-sharing
  */
 
 import { test as base, expect } from '@playwright/test'

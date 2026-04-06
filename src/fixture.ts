@@ -61,6 +61,7 @@ export const testreelFixtures: Parameters<
     })
 
     const page = await context.newPage()
+    ;(page as any)._videoStartedAt = Date.now()
     await use(page)
 
     // Finalize video and attach to test report
@@ -84,11 +85,13 @@ export const testreelFixtures: Parameters<
 
   testreelPage: async ({ page, testreelOptions }, use, testInfo) => {
     const name = testreelOptions.name ?? sanitizeFilename(testInfo.title)
+    const videoStartedAt = (page as any)._videoStartedAt as number | undefined
     const recorder = await recordPage(page, {
       clean: true,
       outputDir: testInfo.outputDir,
       name,
       ...testreelOptions,
+      videoStartedAt,
     })
 
     await use(recorder)

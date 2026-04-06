@@ -3,7 +3,7 @@
  *
  * Run from the testreel package directory:
  *   cd testreel
- *   pnpm exec playwright test --config examples/playwright.config.ts
+ *   pnpm exec playwright test --config examples/playwright.config.ts playwright-demo
  *
  * Or via the package script:
  *   pnpm test:examples
@@ -11,17 +11,11 @@
  * Output:
  *   Videos and screenshots are attached to the Playwright HTML report.
  *   Open it with: pnpm exec playwright show-report
- *
- * This example uses the drop-in `page` fixture — your existing Playwright tests
- * work unchanged, just swap `test` for `recorded`. For advanced features like
- * cursor animation and zoom, see playwright-composable.test.ts which uses
- * the `testreelPage` (PageRecorder) fixture.
  */
+import { test as base } from '@playwright/test'
+import { type TestreelFixtures, testreelFixtures } from 'testreel/playwright'
 
-import { test, expect } from '@playwright/test'
-import { testreelFixtures, type TestreelFixtures } from 'testreel/playwright'
-
-const recorded = test.extend<TestreelFixtures>({
+const recorded = base.extend<TestreelFixtures>({
   ...testreelFixtures,
 })
 
@@ -29,46 +23,39 @@ const recorded = test.extend<TestreelFixtures>({
 recorded.use({
   testreelOptions: {
     viewport: { width: 1280, height: 720 },
+    chrome: { url: true },
+    background: {
+      gradient: { from: '#667eea', to: '#764ba2' },
+      padding: 60,
+      borderRadius: 12,
+    },
   },
 })
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
-recorded('TodoMVC — add and complete todos', async ({ page }) => {
-  await page.goto('https://demo.playwright.dev/todomvc')
-  await page.waitForTimeout(1000)
+recorded('TodoMVC — manage completed todos', async ({ testreelPage }) => {
+  await testreelPage.navigate('https://demo.playwright.dev/todomvc')
+  await testreelPage.wait(1000)
 
   // Add a few todos
-  await page.fill('.new-todo', 'Buy groceries')
-  await page.keyboard.press('Enter')
-  await page.fill('.new-todo', 'Walk the dog')
-  await page.keyboard.press('Enter')
-  await page.fill('.new-todo', 'Read a book')
-  await page.keyboard.press('Enter')
-  await page.waitForTimeout(500)
+  await testreelPage.type('.new-todo', 'Buy groceries')
+  await testreelPage.keyboard('Enter')
+  await testreelPage.type('.new-todo', 'Walk the dog')
+  await testreelPage.keyboard('Enter')
 
-  // Complete the first todo
-  await page.click('.todo-list li:first-child .toggle')
-  await page.waitForTimeout(1000)
-})
+  // Complete a todo
+  await testreelPage.click('.todo-list li:nth-child(1) .toggle')
 
-recorded('TodoMVC — filter todos', async ({ page }) => {
-  await page.goto('https://demo.playwright.dev/todomvc')
-  await page.waitForTimeout(1000)
+  // Filter to completed and clear them
+  await testreelPage.click('.filters a[href="#/completed"]', { zoom: 1.5 })
+  await testreelPage.click('.clear-completed', { zoom: 2 })
 
-  // Add todos and complete one
-  await page.fill('.new-todo', 'Buy groceries')
-  await page.keyboard.press('Enter')
-  await page.fill('.new-todo', 'Walk the dog')
-  await page.keyboard.press('Enter')
-  await page.click('.todo-list li:first-child .toggle')
-  await page.waitForTimeout(500)
+  // Filter back to all todos
+  await testreelPage.click('.filters a[href="#/"]', { zoom: 1.5 })
 
-  // Filter to active todos
-  await page.click('a[href="#/active"]')
-  await page.waitForTimeout(1000)
-
-  // Filter to completed todos
-  await page.click('a[href="#/completed"]')
-  await page.waitForTimeout(1000)
+  // Delete the remaining todo
+  await testreelPage.hover('.todo-list li:first-child')
+  await testreelPage.click('.todo-list li:first-child .destroy', { zoom: 2 })
+  await testreelPage.wait(1000)
 })

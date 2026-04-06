@@ -20,8 +20,8 @@ export class CursorTrackerImpl implements CursorTracker {
   private startTime = 0
   private cursorPos = { x: 0, y: 0 }
   private hasMoved = false
-  constructor() {
-    this.startTime = Date.now()
+  constructor(startTime?: number) {
+    this.startTime = startTime ?? Date.now()
   }
 
   private elapsed(): number {
@@ -236,9 +236,9 @@ export class CursorTrackerImpl implements CursorTracker {
   }
 }
 
-/** Create a new cursor tracker instance. */
-export function createCursorTracker(): CursorTrackerImpl {
-  return new CursorTrackerImpl()
+/** Create a new cursor tracker instance. Pass startTime to align with video recording start. */
+export function createCursorTracker(startTime?: number): CursorTrackerImpl {
+  return new CursorTrackerImpl(startTime)
 }
 
 // ---------------------------------------------------------------------------
