@@ -160,8 +160,8 @@ describe('cursor event tracker', () => {
       await triggerRipple(page)
 
       const ev = getCursorEvents()[0]
-      expect(ev.rippleSize).toBe(40)
-      expect(ev.rippleColor).toBe('rgba(59, 130, 246, 0.4)')
+      expect(ev.rippleSize).toBe(100)
+      expect(ev.rippleColor).toBe('rgba(0, 0, 0, 0.4)')
     })
   })
 

@@ -395,32 +395,41 @@ export function buildFilterGraph(
   }
 
   // Add ripple overlays via inline lavfi source (no extra inputs needed)
-  if (rippleEvents.length > 0 && rippleConfig) {
+  if (rippleEvents.length > 0 && rippleConfig && rippleConfig.size > 0) {
     const { size, r, g, b, baseAlpha, durationMs } = rippleConfig
     const fps = 30
     const frames = Math.ceil((durationMs / 1000) * fps)
     const dim = size * 2
     const alphaVal = Math.round(255 * baseAlpha)
 
-    // Generate ripple animation as a lavfi source
+    // Generate ripple animation as a lavfi source.
+    // Draws an expanding ring that fades over time.
+    const ringWidth = Math.max(4, Math.round(size * 0.15))
     const geq =
       `geq=` +
-      `r='if(lte(hypot(X-${size},Y-${size}),${size}*(N+1)/${frames})*gt(hypot(X-${size},Y-${size}),(${size}*(N+1)/${frames})-3),${r},0)'` +
-      `:g='if(lte(hypot(X-${size},Y-${size}),${size}*(N+1)/${frames})*gt(hypot(X-${size},Y-${size}),(${size}*(N+1)/${frames})-3),${g},0)'` +
-      `:b='if(lte(hypot(X-${size},Y-${size}),${size}*(N+1)/${frames})*gt(hypot(X-${size},Y-${size}),(${size}*(N+1)/${frames})-3),${b},0)'` +
-      `:a='if(lte(hypot(X-${size},Y-${size}),${size}*(N+1)/${frames})*gt(hypot(X-${size},Y-${size}),(${size}*(N+1)/${frames})-3),${alphaVal}*(1-N/${frames}),0)'`
+      `r='if(lte(hypot(X-${size},Y-${size}),${size}*(N+1)/${frames})*gt(hypot(X-${size},Y-${size}),(${size}*(N+1)/${frames})-${ringWidth}),${r},0)'` +
+      `:g='if(lte(hypot(X-${size},Y-${size}),${size}*(N+1)/${frames})*gt(hypot(X-${size},Y-${size}),(${size}*(N+1)/${frames})-${ringWidth}),${g},0)'` +
+      `:b='if(lte(hypot(X-${size},Y-${size}),${size}*(N+1)/${frames})*gt(hypot(X-${size},Y-${size}),(${size}*(N+1)/${frames})-${ringWidth}),${b},0)'` +
+      `:a='if(lte(hypot(X-${size},Y-${size}),${size}*(N+1)/${frames})*gt(hypot(X-${size},Y-${size}),(${size}*(N+1)/${frames})-${ringWidth}),${alphaVal}*(1-N/${frames}),0)'`
 
     const rippleSrc = `color=c=black@0:s=${dim}x${dim}:d=${(durationMs / 1000).toFixed(2)}:r=${fps},format=rgba,${geq}[ripple_src]`
     filters.push(rippleSrc)
 
-    // Split the ripple source for each event
+    // Split the ripple source for each event and shift PTS to match event time.
+    // The ripple source is short (e.g. 0.5s). Without PTS shifting, the source
+    // reaches EOF before the overlay enable window opens, making it invisible.
     if (rippleEvents.length === 1) {
-      // No split needed for a single ripple
-      const splitLabels = '[rip0]'
+      const splitLabels = '[rip0_raw]'
       filters.push(`[ripple_src]copy${splitLabels}`)
     } else {
-      const splitLabels = rippleEvents.map((_, i) => `[rip${i}]`).join('')
+      const splitLabels = rippleEvents.map((_, i) => `[rip${i}_raw]`).join('')
       filters.push(`[ripple_src]split=${rippleEvents.length}${splitLabels}`)
+    }
+
+    // Shift each copy's PTS to align with its event time
+    for (let i = 0; i < rippleEvents.length; i++) {
+      const startPts = rippleEvents[i].time.toFixed(4)
+      filters.push(`[rip${i}_raw]setpts=PTS+${startPts}/TB[rip${i}]`)
     }
 
     // Overlay each ripple at its position and time
