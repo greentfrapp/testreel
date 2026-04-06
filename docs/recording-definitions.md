@@ -58,9 +58,9 @@ When `cursor` is `true` or omitted, a default cursor is rendered. Pass an object
 | `style` | `"default"` \| `"pointer"` \| `"text"` \| `"touch"` | `"default"` | Cursor image style. `"touch"` shows a centered circle for mobile UIs. |
 | `size` | `number` | `24` | Cursor size in pixels. |
 | `color` | `string` | — | Cursor color. |
-| `rippleColor` | `string` | — | Click ripple effect color. |
-| `rippleSize` | `number` | — | Click ripple effect radius. |
-| `transitionMs` | `number` | — | Cursor movement transition duration. |
+| `rippleColor` | `string` | `'rgba(0, 0, 0, 0.4)'` | Click ripple effect color. |
+| `rippleSize` | `number` | `100` | Click ripple effect radius. Set to `0` to disable ripples. |
+| `transitionMs` | `number` | — | Override cursor movement duration. Omit for speed-based (500 px/s, clamped 100–600 ms). |
 
 ### Window chrome
 

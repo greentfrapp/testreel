@@ -117,7 +117,7 @@ The `testreelPage` object provides these methods:
 
 | Method | Description |
 |--------|-------------|
-| `click(selector, options?)` | Click an element with animated cursor. Options: `{ timeout }` |
+| `click(selector, options?)` | Click an element with animated cursor. Options: `{ timeout, zoom, zoomOut }` |
 | `type(selector, text, options?)` | Type text with animated cursor. Options: `{ delay, clear, timeout }` |
 | `fill(selector, text, options?)` | Set an input's value directly. Options: `{ timeout }` |
 | `hover(selector, options?)` | Hover with animated cursor. Options: `{ timeout }` |

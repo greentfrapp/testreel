@@ -63,6 +63,26 @@ Draw attention to a specific part of the page:
 }
 ```
 
+## Click with zoom
+
+Zoom into each click target for emphasis. Consecutive zoom clicks pan directly without zooming out in between:
+
+```json
+{
+  "url": "https://demo.playwright.dev/todomvc",
+  "viewport": { "width": 1280, "height": 720 },
+  "chrome": { "url": true },
+  "background": true,
+  "steps": [
+    { "action": "wait", "ms": 1000 },
+    { "action": "click", "selector": ".todo-list li:first-child .toggle", "zoom": 2 },
+    { "action": "click", "selector": ".filters a[href='#/active']", "zoom": 1.5 },
+    { "action": "click", "selector": ".filters a[href='#/']", "zoom": 1.5 },
+    { "action": "wait", "ms": 1000 }
+  ]
+}
+```
+
 ## GIF for pull requests
 
 Create a small, lightweight GIF to embed in a PR description:
