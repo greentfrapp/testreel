@@ -6,6 +6,10 @@
 
 Programmatic video recordings for web apps. Define interactions in JSON, get polished screen recordings out.
 
+[demo-2026-04-06_15-16-51-305.webm](https://github.com/user-attachments/assets/15778b3e-af98-4fe7-b18f-c4308d00e353)
+
+*Demo video generated with testreel*
+
 ## Install
 
 ```bash
