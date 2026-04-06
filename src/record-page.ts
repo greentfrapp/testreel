@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import type { Locator, Page } from 'playwright-core'
-import { awaitSelector, getScreenCenter } from './actions'
+import { awaitSelector, detectCursorStyle, getScreenCenter } from './actions'
 import { createCursorTracker } from './cursor'
 import { log, logError, logVerbose } from './logger'
 import { runPostProcessPipeline } from './pipeline'
@@ -46,7 +46,7 @@ export interface PageRecorder {
   /** Click an element. Moves the cursor, triggers a click ripple, then clicks at the element center. */
   click(
     selector: SelectorOrLocator,
-    options?: { timeout?: number },
+    options?: { timeout?: number; zoom?: number; zoomOut?: boolean },
   ): Promise<void>
   /**
    * Type text character-by-character with animated keystrokes.
@@ -57,7 +57,11 @@ export interface PageRecorder {
   type(
     selector: SelectorOrLocator,
     text: string,
-    options?: { delay?: number; clear?: boolean; timeout?: number },
+    options?: {
+      delay?: number
+      clear?: boolean
+      timeout?: number
+    },
   ): Promise<void>
   /**
    * Set an input's value instantly (no typing animation).
@@ -177,13 +181,29 @@ export async function recordPage(
       const start = (Date.now() - stepTimerStart) / 1000
       const timeout = opts?.timeout ?? DEFAULT_SELECTOR_TIMEOUT
       await awaitSelector(page, selector, timeout)
-      await moveCursor(selector)
+
+      // Skip cursor move when zoom is set — zoom will move it
+      if (!opts?.zoom) {
+        await moveCursor(selector)
+      }
+
+      // Zoom in before clicking if requested
+      if (opts?.zoom && opts.zoom > 1) {
+        await recorder.zoom({ selector, scale: opts.zoom })
+      }
+
       await ripple()
       const center = await getScreenCenter(page, selector)
       if (center) {
         await page.mouse.click(center.x, center.y)
       }
       await page.waitForTimeout(DEFAULT_PAUSE_AFTER)
+
+      // Zoom out after click+pause (skip if zoomOut is false)
+      if (opts?.zoom && opts.zoom > 1 && opts?.zoomOut !== false) {
+        await recorder.zoom({ scale: 1 })
+      }
+
       recordTiming(start)
     },
 
@@ -282,15 +302,28 @@ export async function recordPage(
     async zoom(opts) {
       const start = (Date.now() - stepTimerStart) / 1000
       const zoomScale = opts.scale ?? 2
-      const duration = opts.duration ?? 600
+      let duration = opts.duration ?? 600
 
       if (cursorEnabled && cursorTracker && opts.selector) {
-        await cursorTracker.moveCursorTo(
-          page,
-          opts.selector,
-          zoomState,
-          cursorOptions,
-        )
+        // Compute target position and cursor speed-based transition duration,
+        // then use that duration for the zoom pan so both move in sync.
+        const loc = resolveLocator(page, opts.selector)
+        const box = await loc.boundingBox()
+        if (box) {
+          const { scale: curScale, tx: curTx, ty: curTy } = zoomState
+          const screenX = box.x + box.width / 2
+          const screenY = box.y + box.height / 2
+          const layoutX = curScale === 1 ? screenX : screenX / curScale - curTx
+          const layoutY = curScale === 1 ? screenY : screenY / curScale - curTy
+          const cursorMs = cursorTracker.computeTransitionMs(layoutX, layoutY)
+          if (!opts.duration) duration = Math.max(duration, cursorMs)
+          const detectedStyle = await detectCursorStyle(loc, cursorOptions)
+          void cursorTracker.moveCursorToPoint(page, layoutX, layoutY, {
+            ...cursorOptions,
+            style: detectedStyle,
+            transitionMs: duration,
+          })
+        }
       }
 
       if (zoomScale === 1 && !opts.selector) {
@@ -475,8 +508,8 @@ export async function recordPage(
 
       const needsSpeed =
         globalSpeed !== 1.0 || stepTimings.some((t) => t.speed !== 1.0)
-      const needsPipeline =
-        cursorEventsForPipeline || hasChrome || hasBackground || needsSpeed
+      const hasFrame = !!(chromeOpts || bgOpts)
+      const needsPipeline = cursorEventsForPipeline || hasFrame || needsSpeed
 
       if (needsPipeline && videoPath) {
         log('  post-processing...')
@@ -491,16 +524,15 @@ export async function recordPage(
                   size: cursorOptions?.size ?? 24,
                 }
               : undefined,
-            frame:
-              hasChrome || hasBackground
-                ? {
-                    chrome: chromeOpts,
-                    background: bgOpts,
-                    videoWidth: vp.width,
-                    videoHeight: vp.height,
-                    screenshots,
-                  }
-                : undefined,
+            frame: hasFrame
+              ? {
+                  chrome: chromeOpts,
+                  background: bgOpts,
+                  videoWidth: vp.width,
+                  videoHeight: vp.height,
+                  screenshots,
+                }
+              : undefined,
             speed: needsSpeed ? { stepTimings, globalSpeed } : undefined,
           })
           if (processedPath !== videoPath) {

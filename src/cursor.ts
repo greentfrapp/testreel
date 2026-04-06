@@ -19,12 +19,33 @@ export class CursorTrackerImpl implements CursorTracker {
   private events: CursorEvent[] = []
   private startTime = 0
   private cursorPos = { x: 0, y: 0 }
+  private hasMoved = false
   constructor() {
     this.startTime = Date.now()
   }
 
   private elapsed(): number {
     return (Date.now() - this.startTime) / 1000
+  }
+
+  /** Compute cursor transition duration from distance at a constant speed. */
+  computeTransitionMs(
+    targetX: number,
+    targetY: number,
+    explicitMs?: number,
+  ): number {
+    if (explicitMs !== undefined) return explicitMs
+    // First move is instant — cursor starts at (0,0) with no visual continuity
+    if (!this.hasMoved) {
+      this.hasMoved = true
+      return 0
+    }
+    const dx = targetX - this.cursorPos.x
+    const dy = targetY - this.cursorPos.y
+    const distance = Math.sqrt(dx * dx + dy * dy)
+    // Default speed: 500 px/s, clamped to 100–600ms
+    const ms = (distance / 500) * 1000
+    return Math.max(100, Math.min(600, ms))
   }
 
   /**
@@ -37,8 +58,6 @@ export class CursorTrackerImpl implements CursorTracker {
     zoomState: ZoomState,
     options: CursorOptions = {},
   ): Promise<void> {
-    const transitionMs = options.transitionMs ?? 350
-
     // Get element bounding box via Playwright locator (supports all selector engines).
     // boundingBox returns screen coordinates (affected by CSS transform).
     // We reverse the transform to get the true layout coordinates for the cursor overlay.
@@ -115,6 +134,7 @@ export class CursorTrackerImpl implements CursorTracker {
     const x = result.x
     const y = result.y
 
+    const transitionMs = this.computeTransitionMs(x, y, options.transitionMs)
     this.cursorPos = { x, y }
 
     this.events.push({
@@ -139,8 +159,7 @@ export class CursorTrackerImpl implements CursorTracker {
     y: number,
     options: CursorOptions = {},
   ): Promise<void> {
-    const transitionMs = options.transitionMs ?? 350
-
+    const transitionMs = this.computeTransitionMs(x, y, options.transitionMs)
     this.cursorPos = { x, y }
 
     this.events.push({
@@ -149,6 +168,7 @@ export class CursorTrackerImpl implements CursorTracker {
       x,
       y,
       transitionMs,
+      cursorStyle: options.style as CursorStyle | undefined,
     })
 
     await page.waitForTimeout(transitionMs + 50)
@@ -163,8 +183,8 @@ export class CursorTrackerImpl implements CursorTracker {
       type: 'ripple',
       x: this.cursorPos.x,
       y: this.cursorPos.y,
-      rippleSize: options.rippleSize ?? 40,
-      rippleColor: options.rippleColor ?? 'rgba(59, 130, 246, 0.4)',
+      rippleSize: options.rippleSize ?? 100,
+      rippleColor: options.rippleColor ?? 'rgba(0, 0, 0, 0.4)',
     })
   }
 

@@ -206,7 +206,7 @@
       "properties": {
         "pauseAfter": { "type": "number", "description": "Pause in milliseconds after this step. Default: 500." },
         "speed": { "type": "number", "exclusiveMinimum": 0, "description": "Playback speed multiplier for this step." },
-        "timeout": { "type": "number", "exclusiveMinimum": 0, "description": "Timeout in milliseconds for selector resolution. Default: 5000." },
+        "timeout": { "type": "number", "exclusiveMinimum": 0, "description": "Timeout in milliseconds for selector resolution. Default: 2000." },
         "waitFor": { "type": "string", "description": "Playwright selector, or 'networkidle' condition to wait for before the action executes." }
       }
     },
@@ -246,6 +246,7 @@
       "properties": {
         "action": { "type": "string", "const": "click" },
         "selector": { "type": "string", "description": "Playwright selector of the element to click." },
+        "zoom": { "type": "number", "exclusiveMinimum": 1, "description": "Zoom into the click target at this scale, then zoom back out after clicking. Example: 2 for 2x zoom." },
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },

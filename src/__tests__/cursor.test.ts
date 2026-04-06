@@ -58,11 +58,21 @@ describe('cursor event tracker', () => {
       expect(events[0].transitionMs).toBe(200)
     })
 
-    it('uses default transitionMs of 350', async () => {
+    it('first move is instant (no visual continuity from origin)', async () => {
       const page = mockPage({ x: 50, y: 50 })
       await moveCursorTo(page, '#el', zoomState())
 
-      expect(getCursorEvents()[0].transitionMs).toBe(350)
+      expect(getCursorEvents()[0].transitionMs).toBe(0)
+    })
+
+    it('subsequent moves use speed-based transitionMs', async () => {
+      const page = mockPage({ x: 500, y: 400 })
+      // First move (instant)
+      await moveCursorTo(page, '#el', zoomState())
+      // Second move — distance from (500,400) to (500,400) = 0, clamped to 100ms
+      await moveCursorTo(page, '#el', zoomState())
+
+      expect(getCursorEvents()[1].transitionMs).toBe(100)
     })
 
     it('does not log an event when element is not found', async () => {
@@ -160,8 +170,8 @@ describe('cursor event tracker', () => {
       await triggerRipple(page)
 
       const ev = getCursorEvents()[0]
-      expect(ev.rippleSize).toBe(40)
-      expect(ev.rippleColor).toBe('rgba(59, 130, 246, 0.4)')
+      expect(ev.rippleSize).toBe(100)
+      expect(ev.rippleColor).toBe('rgba(0, 0, 0, 0.4)')
     })
   })
 
