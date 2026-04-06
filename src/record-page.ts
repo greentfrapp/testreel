@@ -205,6 +205,7 @@ export async function recordPage(
       }
 
       await ripple()
+      await page.waitForTimeout(150)
       const center = await getScreenCenter(page, selector)
       if (center) {
         await page.mouse.click(center.x, center.y)
