@@ -165,11 +165,11 @@ async function handleClick(
     )
   }
 
+  const center = await getScreenCenter(page, step.selector)
   if (ctx.cursorEnabled) {
     await getTriggerRipple(ctx)(page, ctx.cursorOptions)
-    await page.waitForTimeout(150)
+    await page.waitForTimeout(100)
   }
-  const center = await getScreenCenter(page, step.selector)
   if (center) {
     await page.mouse.click(center.x, center.y)
   }

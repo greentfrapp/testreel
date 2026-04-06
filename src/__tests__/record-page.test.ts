@@ -816,3 +816,59 @@ describe('PageRecorder navigate resets zoom', () => {
     })
   })
 })
+
+describe('PageRecorder deferred zoom-out', () => {
+  let page: any
+
+  beforeEach(() => {
+    vi.spyOn(fs, 'mkdirSync').mockReturnValue(undefined)
+    vi.spyOn(fs, 'writeFileSync').mockReturnValue(undefined)
+    vi.spyOn(fs, 'unlinkSync').mockReturnValue(undefined)
+    vi.spyOn(fs, 'renameSync').mockReturnValue(undefined)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('consecutive zoom-clicks do not zoom out between them', async () => {
+    page = mockPage()
+    const recorder = await recordPage(page, {
+      outputDir: '/tmp/test-output',
+      cursor: false,
+    })
+
+    // Two consecutive zoom-clicks
+    await recorder.click('#btn', { zoom: 2 })
+    const evaluateCountAfterFirst = page.evaluate.mock.calls.length
+
+    await recorder.click('#btn', { zoom: 2 })
+    const evaluateCountAfterSecond = page.evaluate.mock.calls.length
+
+    // Between the two clicks, there should be no zoom-out (scale=1) evaluate call.
+    // The zoom-in for the second click should pan directly without resetting.
+    // If zoom-out happened, there would be extra evaluate calls for the reset.
+    // With deferred zoom-out, the second click's zoom-in replaces the pending zoom-out.
+    expect(evaluateCountAfterSecond - evaluateCountAfterFirst).toBeLessThanOrEqual(
+      evaluateCountAfterFirst,
+    )
+  })
+
+  it('zoom-out is flushed before a non-zoom action', async () => {
+    page = mockPage()
+    const recorder = await recordPage(page, {
+      outputDir: '/tmp/test-output',
+      cursor: false,
+    })
+
+    await recorder.click('#btn', { zoom: 2 })
+    const evaluateCountAfterClick = page.evaluate.mock.calls.length
+
+    // A non-zoom action should flush the pending zoom-out
+    await recorder.type('#input', 'hello')
+    const evaluateCountAfterType = page.evaluate.mock.calls.length
+
+    // The type action should have triggered a zoom-out (evaluate call for scale=1)
+    expect(evaluateCountAfterType).toBeGreaterThan(evaluateCountAfterClick)
+  })
+})
