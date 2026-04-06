@@ -341,6 +341,21 @@ export async function record(
       await page.waitForTimeout(step.pauseAfter ?? 500)
     }
 
+    // Zoom out after click+pause — unless the next step is also a zoom click
+    if (step.action === 'click' && (step as import('./types').ClickStep).zoom) {
+      const nextStep = def.steps[i + 1]
+      const nextHasZoom =
+        nextStep?.action === 'click' &&
+        (nextStep as import('./types').ClickStep).zoom
+      if (!nextHasZoom) {
+        await ACTIONS.zoom(
+          page,
+          { action: 'zoom', scale: 1 } as import('./types').ZoomStep,
+          ctx,
+        )
+      }
+    }
+
     const stepEnd = (Date.now() - stepTimerStart) / 1000
     const elapsed = ((Date.now() - stepWallStart) / 1000).toFixed(1)
     log(`  [${i + 1}/${def.steps.length}] ${label} (${elapsed}s)`)

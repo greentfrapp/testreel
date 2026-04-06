@@ -10,6 +10,8 @@ import type {
   ActionName,
   ClearStep,
   ClickStep,
+  CursorOptions,
+  CursorStyle,
   FillStep,
   HoverStep,
   KeyboardStep,
@@ -31,6 +33,51 @@ function resolveLocator(page: Page, selector: SelectorOrLocator): Locator {
   return typeof selector === 'string' ? page.locator(selector) : selector
 }
 // zoom suspend/restore no longer needed — all actions use screen coordinates
+
+/** Detect cursor style from a target element (pointer, text, default, etc.) */
+export async function detectCursorStyle(
+  locator: Locator,
+  options?: CursorOptions,
+): Promise<CursorStyle> {
+  if (options?.style === 'touch') return 'touch'
+  const style = await locator.evaluate((el) => {
+    const computed = window.getComputedStyle(el).cursor
+    if (computed === 'pointer' || computed === 'text') return computed
+    if (computed === 'auto' || computed === '' || computed === 'default') {
+      const tag = el.tagName.toLowerCase()
+      if (
+        tag === 'a' ||
+        tag === 'button' ||
+        tag === 'select' ||
+        tag === 'summary' ||
+        el.closest('a') ||
+        el.closest('button') ||
+        el.getAttribute('role') === 'button' ||
+        el.getAttribute('role') === 'link'
+      )
+        return 'pointer'
+      if (tag === 'textarea' || (el as HTMLElement).isContentEditable)
+        return 'text'
+      if (tag === 'input') {
+        const t = ((el as HTMLInputElement).type || 'text').toLowerCase()
+        return [
+          'text',
+          'search',
+          'url',
+          'tel',
+          'email',
+          'password',
+          'number',
+          '',
+        ].includes(t)
+          ? 'text'
+          : 'pointer'
+      }
+    }
+    return 'default'
+  })
+  return style as CursorStyle
+}
 
 function getMoveCursorTo(ctx: ActionContext) {
   return ctx.cursorTracker
@@ -99,13 +146,26 @@ async function handleClick(
     step.selector,
     step.timeout ?? DEFAULT_SELECTOR_TIMEOUT,
   )
-  if (ctx.cursorEnabled) {
+  // Skip cursor move here when zoom is set — handleZoom will move it
+  if (ctx.cursorEnabled && !step.zoom) {
     await getMoveCursorTo(ctx)(
       page,
       step.selector,
       ctx.zoomState,
       ctx.cursorOptions,
     )
+  }
+
+  // Zoom in before clicking if requested
+  if (step.zoom && step.zoom > 1) {
+    await handleZoom(
+      page,
+      { action: 'zoom', selector: step.selector, scale: step.zoom },
+      ctx,
+    )
+  }
+
+  if (ctx.cursorEnabled) {
     await getTriggerRipple(ctx)(page, ctx.cursorOptions)
   }
   const center = await getScreenCenter(page, step.selector)
@@ -323,15 +383,30 @@ async function handleZoom(
   ctx: ActionContext,
 ): Promise<void> {
   const scale = step.scale ?? 2
-  const duration = step.duration ?? 600
+  let duration = step.duration ?? 600
 
-  if (ctx.cursorEnabled && step.selector) {
-    await getMoveCursorTo(ctx)(
-      page,
-      step.selector,
-      ctx.zoomState,
-      ctx.cursorOptions,
-    )
+  if (ctx.cursorEnabled && step.selector && ctx.cursorTracker) {
+    // Compute target position and cursor speed-based transition duration,
+    // then use that duration for the zoom pan so both move in sync.
+    const loc = page.locator(step.selector)
+    const box = await loc.boundingBox()
+    if (box) {
+      const { scale: curScale, tx: curTx, ty: curTy } = ctx.zoomState
+      const screenX = box.x + box.width / 2
+      const screenY = box.y + box.height / 2
+      const layoutX = curScale === 1 ? screenX : screenX / curScale - curTx
+      const layoutY = curScale === 1 ? screenY : screenY / curScale - curTy
+      // Cursor speed determines the duration for both cursor and viewport
+      const cursorMs = ctx.cursorTracker.computeTransitionMs(layoutX, layoutY)
+      if (!step.duration) duration = Math.max(duration, cursorMs)
+      const detectedStyle = await detectCursorStyle(loc, ctx.cursorOptions)
+      // Don't await — record move event immediately, then zoom event right after
+      void ctx.cursorTracker.moveCursorToPoint(page, layoutX, layoutY, {
+        ...ctx.cursorOptions,
+        style: detectedStyle,
+        transitionMs: duration,
+      })
+    }
   }
 
   if (scale === 1 && !step.selector) {

@@ -52,17 +52,15 @@ export function buildPositionExpr(
   if (keyframes.length === 1) return String(keyframes[0].value)
 
   // Build nested if/else expression
-  // For each segment: if t < arrival_time, interpolate from prev to current
+  // For each segment: cursor starts moving at event time, arrives at event time + duration
   let expr = String(keyframes[keyframes.length - 1].value)
 
   for (let i = keyframes.length - 1; i >= 1; i--) {
     const prev = keyframes[i - 1]
     const curr = keyframes[i]
     const durSec = curr.transitionMs / 1000
-    const arrivalTime = curr.time // time the move event was logged
-
-    // The cursor starts moving at arrivalTime - durSec and arrives at arrivalTime
-    const moveStart = Math.max(0, arrivalTime - durSec)
+    const moveStart = curr.time // cursor starts moving when event was recorded
+    const arrivalTime = moveStart + durSec // cursor arrives after transition
 
     // During transition: lerp from prev.value to curr.value
     const lerp = `${prev.value}+(${curr.value}-${prev.value})*(t-${moveStart.toFixed(4)})/${durSec.toFixed(4)}`

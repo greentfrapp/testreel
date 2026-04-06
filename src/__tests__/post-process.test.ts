@@ -71,15 +71,15 @@ describe('buildPositionExpr', () => {
     })
 
     it('interpolates during transition', () => {
-      // Transition from keyframe[0] to keyframe[1] starts at t=2.6 (3-0.4), ends at t=3
-      const midpoint = evalExpr(expr, 2.8) // halfway through the 0.4s transition
+      // Transition starts at t=3, ends at t=3.4
+      const midpoint = evalExpr(expr, 3.2) // halfway through the 0.4s transition
       expect(midpoint).toBeGreaterThan(100)
       expect(midpoint).toBeLessThan(500)
       expect(midpoint).toBeCloseTo(300, 0)
     })
 
     it('returns last value after all transitions', () => {
-      expect(evalExpr(expr, 3)).toBe(500)
+      expect(evalExpr(expr, 3.4)).toBe(500)
       expect(evalExpr(expr, 10)).toBe(500)
     })
   })
@@ -97,22 +97,24 @@ describe('buildPositionExpr', () => {
     })
 
     it('reaches second keyframe value', () => {
-      expect(evalExpr(expr, 3)).toBe(200)
+      // Transition starts at t=3, ends at t=3.5
+      expect(evalExpr(expr, 3.5)).toBe(200)
     })
 
     it('interpolates toward third keyframe', () => {
-      const mid = evalExpr(expr, 4.75)
+      // Transition starts at t=5, ends at t=5.5
+      const mid = evalExpr(expr, 5.25) // halfway
       expect(mid).toBeGreaterThan(100)
       expect(mid).toBeLessThan(200)
     })
 
     it('returns last value after all transitions', () => {
-      expect(evalExpr(expr, 5)).toBe(100)
+      expect(evalExpr(expr, 5.5)).toBe(100)
       expect(evalExpr(expr, 99)).toBe(100)
     })
   })
 
-  it('clamps transition start to 0 when keyframe is very early', () => {
+  it('handles early keyframe without negative time', () => {
     const keyframes = [
       { time: 0, value: 50, transitionMs: 300 },
       { time: 0.1, value: 200, transitionMs: 300 },
@@ -120,7 +122,8 @@ describe('buildPositionExpr', () => {
     const expr = buildPositionExpr(keyframes, 'x')
     // Should not throw or produce NaN
     expect(evalExpr(expr, 0)).toBe(50)
-    expect(evalExpr(expr, 0.1)).toBe(200)
+    // Transition starts at t=0.1, ends at t=0.4
+    expect(evalExpr(expr, 0.4)).toBe(200)
   })
 })
 

@@ -42,6 +42,9 @@ export interface WaitStep extends BaseStep {
 export interface ClickStep extends BaseStep {
   action: 'click'
   selector: string
+  /** Zoom into the click target at this scale, then zoom back out after the click.
+   *  Example: `zoom: 2` zooms to 2x, clicks, waits pauseAfter, then zooms out. */
+  zoom?: number
 }
 
 export interface TypeStep extends BaseStep {
@@ -256,6 +259,11 @@ export interface CursorEvent {
 }
 
 export interface CursorTracker {
+  computeTransitionMs(
+    targetX: number,
+    targetY: number,
+    explicitMs?: number,
+  ): number
   moveCursorTo(
     page: import('playwright-core').Page,
     selector: string | import('playwright-core').Locator,
