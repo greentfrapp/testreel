@@ -163,8 +163,8 @@ export class CursorTrackerImpl implements CursorTracker {
       type: 'ripple',
       x: this.cursorPos.x,
       y: this.cursorPos.y,
-      rippleSize: options.rippleSize ?? 40,
-      rippleColor: options.rippleColor ?? 'rgba(59, 130, 246, 0.4)',
+      rippleSize: options.rippleSize ?? 100,
+      rippleColor: options.rippleColor ?? 'rgba(0, 0, 0, 0.4)',
     })
   }
 

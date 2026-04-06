@@ -246,9 +246,8 @@ export async function runPostProcessPipeline(
       const rippleEvents = cursor.events.filter((e) => e.type === 'ripple')
       let rippleConfig: RippleConfig | null = null
       if (rippleEvents.length > 0) {
-        const rippleSize = rippleEvents[0].rippleSize ?? 40
-        const rippleColor =
-          rippleEvents[0].rippleColor ?? 'rgba(59, 130, 246, 0.4)'
+        const rippleSize = rippleEvents[0].rippleSize ?? 100
+        const rippleColor = rippleEvents[0].rippleColor ?? 'rgba(0, 0, 0, 0.4)'
         const match = rippleColor.match(
           /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([0-9.]+))?\)/,
         )
