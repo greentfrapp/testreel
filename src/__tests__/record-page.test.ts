@@ -849,9 +849,9 @@ describe('PageRecorder deferred zoom-out', () => {
     // The zoom-in for the second click should pan directly without resetting.
     // If zoom-out happened, there would be extra evaluate calls for the reset.
     // With deferred zoom-out, the second click's zoom-in replaces the pending zoom-out.
-    expect(evaluateCountAfterSecond - evaluateCountAfterFirst).toBeLessThanOrEqual(
-      evaluateCountAfterFirst,
-    )
+    expect(
+      evaluateCountAfterSecond - evaluateCountAfterFirst,
+    ).toBeLessThanOrEqual(evaluateCountAfterFirst)
   })
 
   it('zoom-out is flushed before a non-zoom action', async () => {
