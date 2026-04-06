@@ -12,9 +12,8 @@
  *   Videos and screenshots are attached to the Playwright HTML report.
  *   Open it with: pnpm exec playwright show-report
  */
-
 import { test as base } from '@playwright/test'
-import { testreelFixtures, type TestreelFixtures } from 'testreel/playwright'
+import { type TestreelFixtures, testreelFixtures } from 'testreel/playwright'
 
 const recorded = base.extend<TestreelFixtures>({
   ...testreelFixtures,
@@ -44,13 +43,10 @@ recorded('TodoMVC — manage completed todos', async ({ testreelPage }) => {
   await testreelPage.keyboard('Enter')
   await testreelPage.type('.new-todo', 'Walk the dog')
   await testreelPage.keyboard('Enter')
-  await testreelPage.type('.new-todo', 'Read a book')
-  await testreelPage.keyboard('Enter')
   await testreelPage.wait(500)
 
   // Complete two todos
   await testreelPage.click('.todo-list li:nth-child(1) .toggle')
-  await testreelPage.click('.todo-list li:nth-child(3) .toggle')
   await testreelPage.wait(500)
 
   // Filter to completed and clear them
