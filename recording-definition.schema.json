@@ -146,7 +146,10 @@
         "color": { "type": "string", "description": "Cursor color." },
         "rippleColor": { "type": "string", "description": "Click ripple color." },
         "rippleSize": { "type": "number", "description": "Click ripple size in pixels." },
-        "transitionMs": { "type": "number", "description": "Cursor movement transition duration in milliseconds." }
+        "transitionMs": { "type": "number", "description": "Cursor movement transition duration in milliseconds." },
+        "idleHide": { "type": "boolean", "description": "Automatically fade out the cursor after a period of inactivity. Default: true. Disabled when the recording uses explicit hideCursor/showCursor steps." },
+        "idleHideMs": { "type": "number", "minimum": 0, "description": "Idle threshold in milliseconds before auto-hiding the cursor. Default: 3000." },
+        "fadeMs": { "type": "number", "minimum": 0, "description": "Fade in/out duration in milliseconds for cursor hide/show transitions. Default: 400." }
       },
       "additionalProperties": false
     },
@@ -224,8 +227,34 @@
         { "$ref": "#/$defs/NavigateStep" },
         { "$ref": "#/$defs/ScreenshotStep" },
         { "$ref": "#/$defs/ZoomStep" },
-        { "$ref": "#/$defs/WaitForNetworkStep" }
+        { "$ref": "#/$defs/WaitForNetworkStep" },
+        { "$ref": "#/$defs/HideCursorStep" },
+        { "$ref": "#/$defs/ShowCursorStep" }
       ]
+    },
+    "HideCursorStep": {
+      "type": "object",
+      "required": ["action"],
+      "properties": {
+        "action": { "type": "string", "const": "hideCursor" },
+        "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
+        "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
+        "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+      },
+      "additionalProperties": false
+    },
+    "ShowCursorStep": {
+      "type": "object",
+      "required": ["action"],
+      "properties": {
+        "action": { "type": "string", "const": "showCursor" },
+        "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
+        "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
+        "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+      },
+      "additionalProperties": false
     },
     "WaitStep": {
       "type": "object",

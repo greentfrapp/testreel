@@ -60,6 +60,8 @@ describe('ACTIONS registry', () => {
     'screenshot',
     'zoom',
     'waitForNetwork',
+    'hideCursor',
+    'showCursor',
   ]
 
   it('has handlers for all expected action types', () => {

@@ -57,6 +57,7 @@ export class CursorTrackerImpl implements CursorTracker {
     selector: SelectorOrLocator,
     zoomState: ZoomState,
     options: CursorOptions = {},
+    silent: boolean = false,
   ): Promise<void> {
     // Get element bounding box via Playwright locator (supports all selector engines).
     // boundingBox returns screen coordinates (affected by CSS transform).
@@ -144,6 +145,7 @@ export class CursorTrackerImpl implements CursorTracker {
       y,
       transitionMs,
       cursorStyle: result.cursorStyle as CursorStyle,
+      silent: silent || undefined,
     })
 
     // Wait for the transition duration to maintain visual pacing
@@ -158,6 +160,7 @@ export class CursorTrackerImpl implements CursorTracker {
     x: number,
     y: number,
     options: CursorOptions = {},
+    silent: boolean = false,
   ): Promise<void> {
     const transitionMs = this.computeTransitionMs(x, y, options.transitionMs)
     this.cursorPos = { x, y }
@@ -169,6 +172,7 @@ export class CursorTrackerImpl implements CursorTracker {
       y,
       transitionMs,
       cursorStyle: options.style as CursorStyle | undefined,
+      silent: silent || undefined,
     })
 
     await page.waitForTimeout(transitionMs + 50)
@@ -259,8 +263,9 @@ export async function moveCursorTo(
   selector: SelectorOrLocator,
   zoomState: ZoomState,
   options: CursorOptions = {},
+  silent: boolean = false,
 ): Promise<void> {
-  return defaultTracker.moveCursorTo(page, selector, zoomState, options)
+  return defaultTracker.moveCursorTo(page, selector, zoomState, options, silent)
 }
 
 export async function moveCursorToPoint(
@@ -268,8 +273,9 @@ export async function moveCursorToPoint(
   x: number,
   y: number,
   options: CursorOptions = {},
+  silent: boolean = false,
 ): Promise<void> {
-  return defaultTracker.moveCursorToPoint(page, x, y, options)
+  return defaultTracker.moveCursorToPoint(page, x, y, options, silent)
 }
 
 export async function triggerRipple(

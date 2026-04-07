@@ -73,7 +73,9 @@ export function buildPositionExpr(
 
 /**
  * Build FFmpeg expression for cursor visibility (opacity).
- * Returns '1' when visible, '0' when hidden.
+ * Returns '1' when visible, '0' when hidden. Used as the `enable=` clause
+ * of the overlay filter (binary on/off only — for fade ramps see
+ * `buildAlphaExpr`).
  */
 export function buildVisibilityExpr(events: CursorEvent[]): string {
   const visEvents = events.filter((e) => e.type === 'hide' || e.type === 'show')
@@ -90,6 +92,138 @@ export function buildVisibilityExpr(events: CursorEvent[]): string {
   result = `if(lt(t,${visEvents[0].time.toFixed(4)}),1,${result})`
 
   return result
+}
+
+/**
+ * Build FFmpeg expression for time-varying cursor alpha with linear fade
+ * ramps around hide/show events. Returns a scalar in [0, 1].
+ *
+ * Uses `T` (frame time, seconds) by default — suitable for the `geq` filter
+ * applied to the cursor input plane. Each hide/show event creates a linear
+ * ramp of duration `fadeMs` starting at the event time.
+ *
+ * Returns '1' if there are no hide/show events.
+ */
+export function buildAlphaExpr(
+  events: CursorEvent[],
+  fadeMs: number,
+  timeVar: string = 'T',
+): string {
+  const visEvents = events
+    .filter((e) => e.type === 'hide' || e.type === 'show')
+    .sort((a, b) => a.time - b.time)
+  if (visEvents.length === 0) return '1'
+
+  const f = Math.max(0.001, fadeMs / 1000)
+
+  // Initial state at t = -infinity is visible (1)
+  // Walk events from last to first, building nested if expression
+  const lastEv = visEvents[visEvents.length - 1]
+  let expr = lastEv.type === 'hide' ? '0' : '1'
+
+  for (let i = visEvents.length - 1; i >= 0; i--) {
+    const ev = visEvents[i]
+    const prevState =
+      i === 0 ? 1 : visEvents[i - 1].type === 'hide' ? 0 : 1
+    const newState = ev.type === 'hide' ? 0 : 1
+    const tStart = ev.time
+    const tEnd = ev.time + f
+
+    if (prevState === newState) {
+      // No-op transition (consecutive same type) — just use a hard threshold
+      expr = `if(lt(${timeVar},${tStart.toFixed(4)}),${prevState},${expr})`
+      continue
+    }
+
+    // Linear ramp from prevState to newState across [tStart, tEnd]
+    const delta = newState - prevState
+    const lerp = `${prevState}+(${delta})*(${timeVar}-${tStart.toFixed(4)})/${f.toFixed(4)}`
+    expr = `if(lt(${timeVar},${tStart.toFixed(4)}),${prevState},if(lt(${timeVar},${tEnd.toFixed(4)}),${lerp},${expr}))`
+  }
+
+  return expr
+}
+
+/**
+ * Inject synthetic `hide`/`show` events into a cursor event stream when the
+ * cursor has been idle (no `move` or `ripple` activity) for at least
+ * `idleHideMs`. Each idle gap produces a hide at the start and a show offset
+ * by `fadeMs` before the next activity, so the cursor is fully faded back in
+ * by the moment of the next interaction.
+ *
+ * If the events stream already contains explicit `hide`/`show` events, the
+ * input is returned unchanged — explicit user control wins over auto-hide.
+ */
+export function computeIdleHideEvents(
+  events: CursorEvent[],
+  videoDurationSec: number,
+  idleHideMs: number,
+  fadeMs: number,
+): CursorEvent[] {
+  if (events.some((e) => e.type === 'hide' || e.type === 'show')) return events
+
+  const idleSec = idleHideMs / 1000
+  const fadeSec = fadeMs / 1000
+
+  const activity = events
+    .filter(
+      (e) =>
+        (e.type === 'move' && !e.silent) || e.type === 'ripple',
+    )
+    .sort((a, b) => a.time - b.time)
+
+  const synth: CursorEvent[] = []
+
+  if (activity.length === 0) {
+    // No cursor activity at all — hide from the start
+    synth.push({ time: -fadeSec, type: 'hide', x: 0, y: 0 })
+    return [...events, ...synth].sort((a, b) => a.time - b.time)
+  }
+
+  // Leading gap: always hide at the start and fade the cursor in just before
+  // the first activity. The cursor should not appear until it's about to do
+  // something useful.
+  if (activity[0].time > fadeSec) {
+    synth.push({
+      time: -fadeSec,
+      type: 'hide',
+      x: activity[0].x,
+      y: activity[0].y,
+    })
+    synth.push({
+      time: activity[0].time - fadeSec,
+      type: 'show',
+      x: activity[0].x,
+      y: activity[0].y,
+    })
+  }
+
+  // Gaps between consecutive activity events
+  for (let i = 0; i < activity.length - 1; i++) {
+    const gap = activity[i + 1].time - activity[i].time
+    if (gap >= idleSec) {
+      synth.push({
+        time: activity[i].time,
+        type: 'hide',
+        x: activity[i].x,
+        y: activity[i].y,
+      })
+      synth.push({
+        time: Math.max(activity[i].time, activity[i + 1].time - fadeSec),
+        type: 'show',
+        x: activity[i + 1].x,
+        y: activity[i + 1].y,
+      })
+    }
+  }
+
+  // Trailing gap: from last activity to end of video
+  const last = activity[activity.length - 1]
+  if (videoDurationSec - last.time >= idleSec) {
+    synth.push({ time: last.time, type: 'hide', x: last.x, y: last.y })
+  }
+
+  return [...events, ...synth].sort((a, b) => a.time - b.time)
 }
 
 /**
@@ -383,6 +517,9 @@ export interface FilterGraphInput {
   xExpr: string
   yExpr: string
   visExpr: string
+  /** Time-varying alpha (0..1) applied per-pixel via `geq` for fade in/out.
+   *  Pass '1' (default) to skip the alpha pass entirely. */
+  alphaExpr?: string
   rippleEvents: Array<{
     x: number
     y: number
@@ -427,6 +564,7 @@ export function buildFilterGraph(
     xExpr,
     yExpr,
     visExpr,
+    alphaExpr = '1',
     rippleEvents,
     rippleConfig,
     videoLabel = '0:v',
@@ -437,6 +575,20 @@ export function buildFilterGraph(
   const filters: string[] = []
   let currentInput = videoLabel
   const extraInputArgs: string[] = []
+
+  // Helper: wrap a cursor label with a per-pixel alpha multiplier (geq) for
+  // fade in/out. Returns a new unique label, or the input label unchanged
+  // when no fade is active.
+  const applyAlpha = (cursorLabel: string, uniqueLabel: string): string => {
+    if (alphaExpr === '1') return cursorLabel
+    // The cursor input is a single still PNG frame, so geq's T variable
+    // would be stuck at 0. Loop the frame and assign per-frame timestamps so
+    // the alpha expression evaluates against the output video time.
+    filters.push(
+      `[${cursorLabel}]loop=loop=-1:size=1:start=0,fps=30,format=gbrap,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='clip(${alphaExpr}\\,0\\,1)*alpha(X,Y)'[${uniqueLabel}]`,
+    )
+    return uniqueLabel
+  }
 
   // Determine effective zoom segments (default: single segment at base cursor size)
   const effectiveZoom =
@@ -462,6 +614,7 @@ export function buildFilterGraph(
             )
             cursorLabel = scaledLabel
           }
+          cursorLabel = applyAlpha(cursorLabel, `${label}_a`)
 
           // Apply hotspot offset so the cursor's logical point aligns with (x, y)
           const xOff = Math.round(hotspot.x * zoom.cursorSize)
@@ -494,6 +647,7 @@ export function buildFilterGraph(
           )
           cursorLabel = scaledLabel
         }
+        cursorLabel = applyAlpha(cursorLabel, `cursor_${style}_a`)
 
         // Apply hotspot offset so the cursor's logical point aligns with (x, y)
         const xOff = Math.round(hotspot.x * cursorSize)
@@ -519,6 +673,7 @@ export function buildFilterGraph(
       )
       cursorLabel = 'cursor_scaled'
     }
+    cursorLabel = applyAlpha(cursorLabel, 'cursor_a')
 
     filters.push(
       `[${currentInput}][${cursorLabel}]overlay=x='${xExpr}':y='${yExpr}':enable='${visExpr}':format=auto[cursor_out]`,

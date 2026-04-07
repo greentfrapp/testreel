@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildAlphaExpr,
   buildFilterGraph,
   buildPositionExpr,
   buildStyleExpr,
   buildVisibilityExpr,
   buildZoomFilter,
   buildZoomSegments,
+  computeIdleHideEvents,
 } from '../post-process'
 import type { FilterGraphInput } from '../post-process'
 import type { CursorEvent, CursorStyle } from '../types'
@@ -594,5 +596,101 @@ describe('buildZoomFilter', () => {
     expect(result!.outputLabel).toBe('pipeline_out')
     // The filter should have time-varying expressions (multiple if() clauses)
     expect(result!.filter).toContain('if(')
+  })
+})
+
+describe('computeIdleHideEvents', () => {
+  const mkMove = (time: number, x = 100, y = 100): CursorEvent => ({
+    time,
+    type: 'move',
+    x,
+    y,
+  })
+
+  it('returns events unchanged when explicit hide/show events exist', () => {
+    const events: CursorEvent[] = [
+      mkMove(0),
+      { time: 1, type: 'hide', x: 0, y: 0 },
+      mkMove(10),
+    ]
+    const result = computeIdleHideEvents(events, 20, 3000, 200)
+    expect(result).toBe(events)
+  })
+
+  it('inserts hide and show around an idle gap between activities', () => {
+    // Video ends right at the second activity to avoid a trailing-gap hide
+    const events: CursorEvent[] = [mkMove(0), mkMove(5)]
+    const result = computeIdleHideEvents(events, 5, 3000, 200)
+    const synthetic = result.filter(
+      (e) => e.type === 'hide' || e.type === 'show',
+    )
+    expect(synthetic).toHaveLength(2)
+    expect(synthetic[0].type).toBe('hide')
+    expect(synthetic[0].time).toBeCloseTo(0, 4)
+    expect(synthetic[1].type).toBe('show')
+    expect(synthetic[1].time).toBeCloseTo(5 - 0.2, 4)
+  })
+
+  it('does not insert hide/show when gap is shorter than idleHideMs', () => {
+    const events: CursorEvent[] = [mkMove(0), mkMove(2)]
+    const result = computeIdleHideEvents(events, 2, 3000, 200)
+    const synthetic = result.filter(
+      (e) => e.type === 'hide' || e.type === 'show',
+    )
+    expect(synthetic).toHaveLength(0)
+  })
+
+  it('emits a trailing hide when last activity is far from end of video', () => {
+    const events: CursorEvent[] = [mkMove(1)]
+    const result = computeIdleHideEvents(events, 10, 3000, 200)
+    const synthetic = result.filter(
+      (e) => e.type === 'hide' || e.type === 'show',
+    )
+    // Trailing hide at t=1 (last activity time)
+    expect(synthetic.some((e) => e.type === 'hide' && e.time === 1)).toBe(true)
+  })
+
+  it('hides from the start when there is no cursor activity at all', () => {
+    const events: CursorEvent[] = []
+    const result = computeIdleHideEvents(events, 10, 3000, 200)
+    expect(result).toHaveLength(1)
+    expect(result[0].type).toBe('hide')
+    expect(result[0].time).toBeCloseTo(-0.2, 4)
+  })
+
+  it('hides when first activity is far from t=0 and shows just before it', () => {
+    const events: CursorEvent[] = [mkMove(5)]
+    const result = computeIdleHideEvents(events, 20, 3000, 200)
+    const synthetic = result.filter(
+      (e) => e.type === 'hide' || e.type === 'show',
+    )
+    // Leading hide at -fadeMs and a show before first activity
+    expect(synthetic.some((e) => e.type === 'hide' && e.time < 0)).toBe(true)
+    expect(synthetic.some((e) => e.type === 'show' && e.time === 4.8)).toBe(
+      true,
+    )
+  })
+})
+
+describe('buildAlphaExpr', () => {
+  it('returns "1" when there are no hide/show events', () => {
+    expect(buildAlphaExpr([], 200)).toBe('1')
+  })
+
+  it('produces a piecewise expression with linear ramps for hide/show events', () => {
+    const events: CursorEvent[] = [
+      { time: 1, type: 'hide', x: 0, y: 0 },
+      { time: 5, type: 'show', x: 0, y: 0 },
+    ]
+    const expr = buildAlphaExpr(events, 200)
+    // Should reference the time variable T and contain ramps
+    expect(expr).toContain('T')
+    expect(expr).toContain('if(')
+    // Includes the hide start and end times (1.0 and 1.2)
+    expect(expr).toContain('1.0000')
+    expect(expr).toContain('1.2000')
+    // Includes the show start and end times (5.0 and 5.2)
+    expect(expr).toContain('5.0000')
+    expect(expr).toContain('5.2000')
   })
 })
