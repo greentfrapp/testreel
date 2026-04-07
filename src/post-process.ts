@@ -123,8 +123,7 @@ export function buildAlphaExpr(
 
   for (let i = visEvents.length - 1; i >= 0; i--) {
     const ev = visEvents[i]
-    const prevState =
-      i === 0 ? 1 : visEvents[i - 1].type === 'hide' ? 0 : 1
+    const prevState = i === 0 ? 1 : visEvents[i - 1].type === 'hide' ? 0 : 1
     const newState = ev.type === 'hide' ? 0 : 1
     const tStart = ev.time
     const tEnd = ev.time + f
@@ -166,10 +165,7 @@ export function computeIdleHideEvents(
   const fadeSec = fadeMs / 1000
 
   const activity = events
-    .filter(
-      (e) =>
-        (e.type === 'move' && !e.silent) || e.type === 'ripple',
-    )
+    .filter((e) => (e.type === 'move' && !e.silent) || e.type === 'ripple')
     .sort((a, b) => a.time - b.time)
 
   const synth: CursorEvent[] = []

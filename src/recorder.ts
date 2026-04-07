@@ -16,6 +16,9 @@ import type {
   Step,
   StepTiming,
 } from './types'
+import { cleanOutputDir, computeOutputSizeLayout, timestamp } from './utils'
+import { loadDefinition } from './validation'
+import { createZoomState } from './zoom'
 
 /** Steps that involve cursor movement or explicit cursor visibility control. */
 const CURSOR_RELEVANT_ACTIONS = new Set<Step['action']>([
@@ -32,9 +35,6 @@ const CURSOR_RELEVANT_ACTIONS = new Set<Step['action']>([
 function hasCursorRelevantSteps(steps: Step[]): boolean {
   return steps.some((s) => CURSOR_RELEVANT_ACTIONS.has(s.action))
 }
-import { cleanOutputDir, computeOutputSizeLayout, timestamp } from './utils'
-import { loadDefinition } from './validation'
-import { createZoomState } from './zoom'
 
 export async function record(
   input: RecordingDefinition | string,
