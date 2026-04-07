@@ -27,6 +27,7 @@ const result = await record({ url: 'https://example.com', steps: [...] })
 | `options.speed` | `number` | Override playback speed multiplier |
 | `options.outputFormat` | `'webm' \| 'mp4' \| 'gif'` | Override output format |
 | `options.keepIntermediates` | `boolean` | Keep cursor JSON and intermediate files |
+| `options.clean` | `boolean` | Remove previous output files before recording |
 
 **Returns:** `Promise<RecordingResult>`
 
@@ -73,6 +74,7 @@ const result = await recorder.stop()
 | `speed` | `number` | `1.0` | Playback speed multiplier |
 | `outputFormat` | `'webm' \| 'mp4' \| 'gif'` | `'webm'` | Output video format |
 | `keepIntermediates` | `boolean` | `false` | Keep intermediate files |
+| `clean` | `boolean` | `false` | Remove previous output files before recording |
 
 **Returns:** `Promise<PageRecorder>`
 
@@ -374,7 +376,7 @@ Wait for a network response. Requires `urlPattern` (URL substring to match).
 |----------|------|---------|-------------|
 | `enabled` | `boolean` | `true` | Enable cursor overlay |
 | `style` | `'default' \| 'pointer' \| 'text' \| 'touch'` | `'default'` | Cursor image style. `'touch'` shows a centered circle cursor for mobile UIs |
-| `size` | `number` | `24` | Cursor size in pixels |
+| `size` | `number` | `48` | Cursor size in pixels |
 | `color` | `string` | — | Cursor color (hex) |
 | `rippleColor` | `string` | `'rgba(0, 0, 0, 0.4)'` | Click ripple color |
 | `rippleSize` | `number` | `100` | Ripple radius in pixels. Set to `0` to disable ripples. |
