@@ -6,9 +6,21 @@
 
 Programmatic video recordings for web apps. Define interactions in JSON, get polished screen recordings out.
 
-[demo-2026-04-06_15-16-51-305.webm](https://github.com/user-attachments/assets/15778b3e-af98-4fe7-b18f-c4308d00e353)
+[Demo video generated with testreel](https://github.com/user-attachments/assets/77dcbbc3-0bde-49e7-99b8-a7cc249be39b)
 
 *Demo video generated with testreel*
+
+- **Let your LLM agent generate product videos** - Just point your agent at this repo and ask it to generate a demo video for your product. Testreel integrates with Playwright, which allows your agent to create recordings with mocks and demo data easily.
+- **Repeatable editable video config** - Instead of having to manually re-record a video because of a typo or a missed click, just edit the config and rerun the recording. Programmatically generate videos with polished background, and cursor and zoom animations.
+
+## Features
+
+- **Animated cursor** — configurable style, size, and click ripple effects
+- **Window chrome** — macOS-style title bar with traffic lights
+- **Background styling** — padding, rounded corners, solid or gradient backgrounds
+- **Multiple auth methods** — setup blocks, localStorage/cookies injection, storage state files, interactive login, Supabase provider
+- **Playwright integration** — test fixture and `recordPage()` API for existing test suites
+- **Output formats** — WebM (default), MP4, GIF
 
 ## Install
 
@@ -109,19 +121,6 @@ await recorder.type('#search', 'hello')
 const result = await recorder.stop() // finalizes video + post-processing
 console.log(result.video)
 ```
-
-## Features
-
-- **13 actions** — click, type, fill, clear, select, scroll, hover, keyboard, navigate, screenshot, zoom, wait, waitForNetwork
-- **Animated cursor** — configurable style, size, and click ripple effects
-- **Window chrome** — macOS-style title bar with traffic lights
-- **Background styling** — padding, rounded corners, solid or gradient backgrounds
-- **Multiple auth methods** — setup blocks, localStorage/cookies injection, storage state files, interactive login, Supabase provider
-- **Playwright integration** — test fixture and `recordPage()` API for existing test suites
-- **Output formats** — WebM (default), MP4, GIF
-- **Speed control** — global and per-step playback speed
-- **Environment variables** — `${VAR}` substitution in definitions
-- **JSON Schema** — IDE autocomplete via `recording-definition.schema.json`
 
 ## Documentation
 
