@@ -169,9 +169,18 @@ export async function recordPage(
   let pendingZoomOut = false
 
   // Helpers for cursor
-  async function moveCursor(selector: SelectorOrLocator): Promise<void> {
+  async function moveCursor(
+    selector: SelectorOrLocator,
+    silent: boolean = false,
+  ): Promise<void> {
     if (cursorEnabled && cursorTracker) {
-      await cursorTracker.moveCursorTo(page, selector, zoomState, cursorOptions)
+      await cursorTracker.moveCursorTo(
+        page,
+        selector,
+        zoomState,
+        cursorOptions,
+        silent,
+      )
     }
   }
 
@@ -243,7 +252,7 @@ export async function recordPage(
       await flushZoomOut()
       const timeout = opts?.timeout ?? DEFAULT_SELECTOR_TIMEOUT
       await awaitSelector(page, selector, timeout)
-      await moveCursor(selector)
+      await moveCursor(selector, true)
       if (opts?.clear) await ripple()
       const center = await getScreenCenter(page, selector)
       if (center) {
@@ -263,7 +272,7 @@ export async function recordPage(
       await flushZoomOut()
       const timeout = opts?.timeout ?? DEFAULT_SELECTOR_TIMEOUT
       await awaitSelector(page, selector, timeout)
-      await moveCursor(selector)
+      await moveCursor(selector, true)
       const loc = resolveLocator(page, selector)
       await loc.focus()
       await loc.fill(text)
@@ -566,6 +575,9 @@ export async function recordPage(
                   defaultStyle:
                     (cursorOptions?.style as CursorStyle) ?? 'default',
                   size: cursorOptions?.size ?? 48,
+                  idleHide: cursorOptions?.idleHide,
+                  idleHideMs: cursorOptions?.idleHideMs,
+                  fadeMs: cursorOptions?.fadeMs,
                 }
               : undefined,
             frame: hasFrame

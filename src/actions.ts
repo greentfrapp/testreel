@@ -1,7 +1,9 @@
 import path from 'path'
 import type { Locator, Page } from 'playwright-core'
 import {
+  hideCursor as defaultHideCursor,
   moveCursorTo as defaultMoveCursorTo,
+  showCursor as defaultShowCursor,
   triggerRipple as defaultTriggerRipple,
 } from './cursor'
 import { logError } from './logger'
@@ -13,12 +15,14 @@ import type {
   CursorOptions,
   CursorStyle,
   FillStep,
+  HideCursorStep,
   HoverStep,
   KeyboardStep,
   NavigateStep,
   ScreenshotStep,
   ScrollStep,
   SelectStep,
+  ShowCursorStep,
   Step,
   TypeStep,
   WaitForNetworkStep,
@@ -191,6 +195,7 @@ async function handleType(
       step.selector,
       ctx.zoomState,
       ctx.cursorOptions,
+      true,
     )
     if (step.clear) await getTriggerRipple(ctx)(page, ctx.cursorOptions)
   }
@@ -222,6 +227,7 @@ async function handleClear(
       step.selector,
       ctx.zoomState,
       ctx.cursorOptions,
+      true,
     )
     await getTriggerRipple(ctx)(page, ctx.cursorOptions)
   }
@@ -246,6 +252,7 @@ async function handleFill(
       step.selector,
       ctx.zoomState,
       ctx.cursorOptions,
+      true,
     )
   }
   // Focus and set value via locator
@@ -270,6 +277,7 @@ async function handleSelect(
       step.selector,
       ctx.zoomState,
       ctx.cursorOptions,
+      true,
     )
   }
   // Set select value via locator
@@ -491,6 +499,32 @@ async function handleZoom(
   await page.waitForTimeout(duration + 100)
 }
 
+async function handleHideCursor(
+  page: Page,
+  _step: HideCursorStep,
+  ctx: ActionContext,
+): Promise<void> {
+  if (!ctx.cursorEnabled) return
+  if (ctx.cursorTracker) {
+    await ctx.cursorTracker.hideCursor(page)
+  } else {
+    await defaultHideCursor(page)
+  }
+}
+
+async function handleShowCursor(
+  page: Page,
+  _step: ShowCursorStep,
+  ctx: ActionContext,
+): Promise<void> {
+  if (!ctx.cursorEnabled) return
+  if (ctx.cursorTracker) {
+    await ctx.cursorTracker.showCursor(page)
+  } else {
+    await defaultShowCursor(page)
+  }
+}
+
 async function handleWaitForNetwork(
   page: Page,
   step: WaitForNetworkStep,
@@ -516,4 +550,6 @@ export const ACTIONS: Record<ActionName, ActionHandler> = {
   screenshot: action<ScreenshotStep>(handleScreenshot),
   zoom: action<ZoomStep>(handleZoom),
   waitForNetwork: action<WaitForNetworkStep>(handleWaitForNetwork),
+  hideCursor: action<HideCursorStep>(handleHideCursor),
+  showCursor: action<ShowCursorStep>(handleShowCursor),
 }

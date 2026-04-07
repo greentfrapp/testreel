@@ -14,12 +14,14 @@ import { getFFmpegPath } from './ffmpeg'
 import {
   type RippleConfig,
   VP9_FAST_FLAGS,
+  buildAlphaExpr,
   buildFilterGraph,
   buildPositionExpr,
   buildStyleExpr,
   buildVisibilityExpr,
   buildZoomFilter,
   buildZoomSegments,
+  computeIdleHideEvents,
   runFFmpeg,
 } from './post-process'
 import type {
@@ -41,6 +43,12 @@ export interface PipelineConfig {
     events: CursorEvent[]
     defaultStyle: CursorStyle
     size: number
+    /** Auto-hide cursor after idle period. Default: true. */
+    idleHide?: boolean
+    /** Idle threshold in ms before auto-hide kicks in. Default: 3000. */
+    idleHideMs?: number
+    /** Fade in/out duration in ms. Default: 200. */
+    fadeMs?: number
   }
   frame?: {
     chrome?: WindowChromeOptions
@@ -220,8 +228,21 @@ export async function runPostProcessPipeline(
         cursorInputs.push({ style, inputIdx: inputCount++ })
       }
 
+      // Apply idle auto-hide (no-op if explicit hide/show events already exist).
+      const idleHide = cursor.idleHide ?? true
+      const idleHideMs = cursor.idleHideMs ?? 3000
+      const fadeMs = cursor.fadeMs ?? 400
+      const cursorEvents = idleHide
+        ? computeIdleHideEvents(
+            cursor.events,
+            probeDuration ?? 0,
+            idleHideMs,
+            fadeMs,
+          )
+        : cursor.events
+
       // Build position/visibility expressions
-      const moveEvents = cursor.events.filter((e) => e.type === 'move')
+      const moveEvents = cursorEvents.filter((e) => e.type === 'move')
       const keyframes = moveEvents.map((e) => ({
         time: e.time,
         x: e.x,
@@ -240,10 +261,11 @@ export async function runPostProcessPipeline(
       }))
       const xExpr = buildPositionExpr(xKeyframes, 'x')
       const yExpr = buildPositionExpr(yKeyframes, 'y')
-      const visExpr = buildVisibilityExpr(cursor.events)
+      const visExpr = buildVisibilityExpr(cursorEvents)
+      const alphaExpr = buildAlphaExpr(cursorEvents, fadeMs, 'T')
 
       // Ripple config (inline lavfi source, no extra inputs)
-      const rippleEvents = cursor.events.filter((e) => e.type === 'ripple')
+      const rippleEvents = cursorEvents.filter((e) => e.type === 'ripple')
       let rippleConfig: RippleConfig | null = null
       if (rippleEvents.length > 0) {
         const rippleSize = rippleEvents[0].rippleSize ?? 100
@@ -265,7 +287,7 @@ export async function runPostProcessPipeline(
       const styleExprs: Record<string, string> = {}
       for (const { style } of cursorInputs) {
         styleExprs[style] = buildStyleExpr(
-          cursor.events,
+          cursorEvents,
           style,
           cursor.defaultStyle,
         )
@@ -276,10 +298,10 @@ export async function runPostProcessPipeline(
       // skip cursor zoom scaling — the FFmpeg crop+scale will scale everything.
       const hasFFmpegZoom =
         frame &&
-        cursor.events.some((e) => e.type === 'zoom' && e.zoomTx !== undefined)
+        cursorEvents.some((e) => e.type === 'zoom' && e.zoomTx !== undefined)
       const zoomSegments = hasFFmpegZoom
         ? [{ cursorSize: cursor.size, enableExpr: '1' }]
-        : buildZoomSegments(cursor.events, cursor.size)
+        : buildZoomSegments(cursorEvents, cursor.size)
 
       const cursorOutputLabel = frame || speed ? 'cur_out' : 'pipeline_out'
 
@@ -289,6 +311,7 @@ export async function runPostProcessPipeline(
         xExpr,
         yExpr,
         visExpr,
+        alphaExpr,
         rippleEvents,
         rippleConfig,
         videoLabel: currentLabel,

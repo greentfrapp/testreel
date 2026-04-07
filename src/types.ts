@@ -116,6 +116,14 @@ export interface WaitForNetworkStep extends BaseStep {
   urlPattern: string
 }
 
+export interface HideCursorStep extends BaseStep {
+  action: 'hideCursor'
+}
+
+export interface ShowCursorStep extends BaseStep {
+  action: 'showCursor'
+}
+
 export type Step =
   | WaitStep
   | ClickStep
@@ -130,6 +138,8 @@ export type Step =
   | ScreenshotStep
   | ZoomStep
   | WaitForNetworkStep
+  | HideCursorStep
+  | ShowCursorStep
 
 export type ActionName = Step['action']
 
@@ -149,6 +159,13 @@ export interface CursorOptions {
   rippleColor?: string
   rippleSize?: number
   transitionMs?: number
+  /** Automatically fade out the cursor after a period of inactivity. Default: true.
+   *  Disabled when the recording contains explicit hideCursor/showCursor steps. */
+  idleHide?: boolean
+  /** Idle threshold in ms before auto-hiding the cursor. Default: 3000. */
+  idleHideMs?: number
+  /** Fade in/out duration in ms used by hide/show transitions. Default: 400. */
+  fadeMs?: number
 }
 
 export interface WindowChromeOptions {
@@ -252,6 +269,9 @@ export interface CursorEvent {
   rippleSize?: number // for 'ripple' events
   rippleColor?: string // for 'ripple' events
   cursorStyle?: CursorStyle // for 'move' events — auto-detected from target element
+  /** Move events emitted by non-interactive actions (type/fill/clear/select)
+   *  that should not count as cursor activity for idle auto-hide purposes. */
+  silent?: boolean // for 'move' events
   zoomScale?: number // for 'zoom' events — page zoom level
   zoomDurationMs?: number // for 'zoom' events — transition duration
   zoomTx?: number // for 'zoom' events — clamped X translation
@@ -269,12 +289,14 @@ export interface CursorTracker {
     selector: string | import('playwright-core').Locator,
     zoomState: ZoomState,
     options?: CursorOptions,
+    silent?: boolean,
   ): Promise<void>
   moveCursorToPoint(
     page: import('playwright-core').Page,
     x: number,
     y: number,
     options?: CursorOptions,
+    silent?: boolean,
   ): Promise<void>
   triggerRipple(
     page: import('playwright-core').Page,

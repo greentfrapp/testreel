@@ -61,6 +61,9 @@ When `cursor` is `true` or omitted, a default cursor is rendered. Pass an object
 | `rippleColor` | `string` | `'rgba(0, 0, 0, 0.4)'` | Click ripple effect color. |
 | `rippleSize` | `number` | `100` | Click ripple effect radius. Set to `0` to disable ripples. |
 | `transitionMs` | `number` | — | Override cursor movement duration. Omit for speed-based (500 px/s, clamped 100–600 ms). |
+| `idleHide` | `boolean` | `true` | Automatically fade out the cursor after a period of no movement or click activity. Disabled when the recording uses explicit `hideCursor`/`showCursor` steps. |
+| `idleHideMs` | `number` | `3000` | Idle threshold in milliseconds before the cursor auto-hides. |
+| `fadeMs` | `number` | `400` | Fade in/out duration in milliseconds for cursor hide/show transitions (both auto-hide and explicit steps). |
 
 ### Window chrome
 

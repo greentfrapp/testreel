@@ -1,6 +1,6 @@
 # Actions Reference
 
-Every step in a recording definition has an `action` field that determines what happens. This page documents all 13 actions.
+Every step in a recording definition has an `action` field that determines what happens. This page documents all 15 actions.
 
 > **Selector support:** All `selector` fields accept any [Playwright selector](https://playwright.dev/docs/selectors) — CSS, text, role, XPath, and more. For example: `"button.submit"`, `"text=Sign in"`, `"role=button[name='Submit']"`, or `"//button[@type='submit']"`.
 
@@ -222,3 +222,21 @@ Wait for a specific network response before continuing.
 ```
 
 Useful for waiting on API calls to complete before taking a screenshot or interacting with dynamically loaded content.
+
+## hideCursor
+
+Fade out the cursor overlay. Takes no fields. Useful for hiding the cursor during a long pause, demo voiceover, or while showing a result the cursor would distract from. The fade duration is controlled by the cursor `fadeMs` option (default `200`).
+
+```json
+{ "action": "hideCursor" }
+```
+
+## showCursor
+
+Fade the cursor overlay back in after a `hideCursor` step. Takes no fields.
+
+```json
+{ "action": "showCursor" }
+```
+
+> **Auto-hide:** by default the cursor automatically fades out after 3 seconds of no movement or click activity (configurable via the `idleHide`, `idleHideMs`, and `fadeMs` cursor options). Adding any explicit `hideCursor`/`showCursor` step in a recording disables auto-hide for that recording — explicit control wins.

@@ -13,11 +13,28 @@ import type {
   RecordOptions,
   RecordingDefinition,
   RecordingResult,
+  Step,
   StepTiming,
 } from './types'
 import { cleanOutputDir, computeOutputSizeLayout, timestamp } from './utils'
 import { loadDefinition } from './validation'
 import { createZoomState } from './zoom'
+
+/** Steps that involve cursor movement or explicit cursor visibility control. */
+const CURSOR_RELEVANT_ACTIONS = new Set<Step['action']>([
+  'click',
+  'hover',
+  'type',
+  'fill',
+  'select',
+  'clear',
+  'hideCursor',
+  'showCursor',
+])
+
+function hasCursorRelevantSteps(steps: Step[]): boolean {
+  return steps.some((s) => CURSOR_RELEVANT_ACTIONS.has(s.action))
+}
 
 export async function record(
   input: RecordingDefinition | string,
@@ -197,10 +214,16 @@ export async function record(
 
   // Normalize cursor options — enabled by default
   const cursorConfig = def.cursor
-  const cursorEnabled =
+  const cursorExplicit = cursorConfig !== undefined
+  let cursorEnabled =
     cursorConfig === undefined ||
     cursorConfig === true ||
     (typeof cursorConfig === 'object' && cursorConfig.enabled !== false)
+  // Skip cursor pipeline entirely when the recording has no cursor-relevant
+  // steps and the user did not explicitly opt in.
+  if (cursorEnabled && !cursorExplicit && !hasCursorRelevantSteps(def.steps)) {
+    cursorEnabled = false
+  }
   const cursorOptions: CursorOptions | undefined = cursorEnabled
     ? typeof cursorConfig === 'object'
       ? cursorConfig
@@ -466,6 +489,9 @@ export async function record(
               events: cursorEventsForPipeline,
               defaultStyle: cursorOptions?.style ?? 'default',
               size: cursorOptions?.size ?? 48,
+              idleHide: cursorOptions?.idleHide,
+              idleHideMs: cursorOptions?.idleHideMs,
+              fadeMs: cursorOptions?.fadeMs,
             }
           : undefined,
         frame: hasFrame
