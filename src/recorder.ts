@@ -488,7 +488,7 @@ export async function record(
           ? {
               events: cursorEventsForPipeline,
               defaultStyle: cursorOptions?.style ?? 'default',
-              size: cursorOptions?.size ?? 24,
+              size: cursorOptions?.size ?? 48,
               idleHide: cursorOptions?.idleHide,
               idleHideMs: cursorOptions?.idleHideMs,
               fadeMs: cursorOptions?.fadeMs,

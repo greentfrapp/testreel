@@ -574,7 +574,7 @@ export async function recordPage(
                   events: cursorEventsForPipeline,
                   defaultStyle:
                     (cursorOptions?.style as CursorStyle) ?? 'default',
-                  size: cursorOptions?.size ?? 24,
+                  size: cursorOptions?.size ?? 48,
                   idleHide: cursorOptions?.idleHide,
                   idleHideMs: cursorOptions?.idleHideMs,
                   fadeMs: cursorOptions?.fadeMs,
