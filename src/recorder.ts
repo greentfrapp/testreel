@@ -465,7 +465,7 @@ export async function record(
           ? {
               events: cursorEventsForPipeline,
               defaultStyle: cursorOptions?.style ?? 'default',
-              size: cursorOptions?.size ?? 24,
+              size: cursorOptions?.size ?? 48,
             }
           : undefined,
         frame: hasFrame
