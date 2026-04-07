@@ -24,7 +24,7 @@
     },
     "waitForSelector": {
       "type": "string",
-      "description": "CSS selector or XPath expression to wait for before starting steps."
+      "description": "Playwright selector to wait for before starting steps."
     },
     "storageState": {
       "type": "string",
@@ -73,6 +73,10 @@
       "type": "number",
       "exclusiveMinimum": 0,
       "description": "Global playback speed multiplier. Default: 1.0."
+    },
+    "outputSize": {
+      "$ref": "#/$defs/Viewport",
+      "description": "Desired final video dimensions. When set, padding is adjusted (and the window scaled down if needed) so the output matches this size. Takes precedence over viewport for determining output dimensions."
     },
     "outputFormat": {
       "type": "string",
@@ -137,12 +141,15 @@
       "type": "object",
       "properties": {
         "enabled": { "type": "boolean", "description": "Enable cursor overlay. Default: true." },
-        "style": { "type": "string", "enum": ["default", "pointer", "crosshair"], "description": "Cursor image style. Default: 'default'." },
+        "style": { "type": "string", "enum": ["default", "pointer", "text", "touch"], "description": "Cursor image style. 'touch' shows a centered circle cursor for mobile UIs. Default: 'default'." },
         "size": { "type": "number", "minimum": 1, "description": "Cursor size in pixels." },
         "color": { "type": "string", "description": "Cursor color." },
         "rippleColor": { "type": "string", "description": "Click ripple color." },
         "rippleSize": { "type": "number", "description": "Click ripple size in pixels." },
-        "transitionMs": { "type": "number", "description": "Cursor movement transition duration in milliseconds." }
+        "transitionMs": { "type": "number", "description": "Cursor movement transition duration in milliseconds." },
+        "idleHide": { "type": "boolean", "description": "Automatically fade out the cursor after a period of inactivity. Default: true. Disabled when the recording uses explicit hideCursor/showCursor steps." },
+        "idleHideMs": { "type": "number", "minimum": 0, "description": "Idle threshold in milliseconds before auto-hiding the cursor. Default: 3000." },
+        "fadeMs": { "type": "number", "minimum": 0, "description": "Fade in/out duration in milliseconds for cursor hide/show transitions. Default: 400." }
       },
       "additionalProperties": false
     },
@@ -167,7 +174,7 @@
       "type": "object",
       "properties": {
         "enabled": { "type": "boolean", "description": "Enable background. Default: true when specified." },
-        "color": { "type": "string", "description": "Solid background color as hex string. Default: '#6366f1'." },
+        "color": { "type": "string", "description": "Solid background color as hex string. If neither color nor gradient is set, defaults to a gradient from '#6366f1' to '#a855f7'." },
         "gradient": {
           "type": "object",
           "required": ["from", "to"],
@@ -202,8 +209,8 @@
       "properties": {
         "pauseAfter": { "type": "number", "description": "Pause in milliseconds after this step. Default: 500." },
         "speed": { "type": "number", "exclusiveMinimum": 0, "description": "Playback speed multiplier for this step." },
-        "timeout": { "type": "number", "exclusiveMinimum": 0, "description": "Timeout in milliseconds for selector resolution. Default: 5000." },
-        "waitFor": { "type": "string", "description": "CSS selector, XPath expression, or 'networkidle' condition to wait for before the action executes." }
+        "timeout": { "type": "number", "exclusiveMinimum": 0, "description": "Timeout in milliseconds for selector resolution. Default: 2000." },
+        "waitFor": { "type": "string", "description": "Playwright selector, or 'networkidle' condition to wait for before the action executes." }
       }
     },
     "Step": {
@@ -220,8 +227,34 @@
         { "$ref": "#/$defs/NavigateStep" },
         { "$ref": "#/$defs/ScreenshotStep" },
         { "$ref": "#/$defs/ZoomStep" },
-        { "$ref": "#/$defs/WaitForNetworkStep" }
+        { "$ref": "#/$defs/WaitForNetworkStep" },
+        { "$ref": "#/$defs/HideCursorStep" },
+        { "$ref": "#/$defs/ShowCursorStep" }
       ]
+    },
+    "HideCursorStep": {
+      "type": "object",
+      "required": ["action"],
+      "properties": {
+        "action": { "type": "string", "const": "hideCursor" },
+        "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
+        "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
+        "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+      },
+      "additionalProperties": false
+    },
+    "ShowCursorStep": {
+      "type": "object",
+      "required": ["action"],
+      "properties": {
+        "action": { "type": "string", "const": "showCursor" },
+        "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
+        "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
+        "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+      },
+      "additionalProperties": false
     },
     "WaitStep": {
       "type": "object",
@@ -241,7 +274,8 @@
       "required": ["action", "selector"],
       "properties": {
         "action": { "type": "string", "const": "click" },
-        "selector": { "type": "string", "description": "CSS selector or XPath expression of the element to click." },
+        "selector": { "type": "string", "description": "Playwright selector of the element to click." },
+        "zoom": { "type": "number", "exclusiveMinimum": 1, "description": "Zoom into the click target at this scale, then zoom back out after clicking. Example: 2 for 2x zoom." },
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
@@ -254,7 +288,7 @@
       "required": ["action", "selector", "text"],
       "properties": {
         "action": { "type": "string", "const": "type" },
-        "selector": { "type": "string", "description": "CSS selector or XPath expression of the element to type into." },
+        "selector": { "type": "string", "description": "Playwright selector of the element to type into." },
         "text": { "type": "string", "description": "Text to type." },
         "delay": { "type": "number", "minimum": 0, "description": "Delay between keystrokes in milliseconds. Default: 80." },
         "clear": { "type": "boolean", "description": "Clear the field before typing." },
@@ -270,7 +304,7 @@
       "required": ["action", "selector"],
       "properties": {
         "action": { "type": "string", "const": "clear" },
-        "selector": { "type": "string", "description": "CSS selector or XPath expression of the element to clear." },
+        "selector": { "type": "string", "description": "Playwright selector of the element to clear." },
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
@@ -283,7 +317,7 @@
       "required": ["action", "selector", "text"],
       "properties": {
         "action": { "type": "string", "const": "fill" },
-        "selector": { "type": "string", "description": "CSS selector or XPath expression of the element to fill." },
+        "selector": { "type": "string", "description": "Playwright selector of the element to fill." },
         "text": { "type": "string", "description": "Text to fill." },
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
@@ -297,7 +331,7 @@
       "required": ["action", "selector", "value"],
       "properties": {
         "action": { "type": "string", "const": "select" },
-        "selector": { "type": "string", "description": "CSS selector or XPath expression of the select element." },
+        "selector": { "type": "string", "description": "Playwright selector of the select element." },
         "value": { "type": "string", "description": "Value to select." },
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
@@ -325,7 +359,7 @@
       "required": ["action", "selector"],
       "properties": {
         "action": { "type": "string", "const": "hover" },
-        "selector": { "type": "string", "description": "CSS selector or XPath expression of the element to hover over." },
+        "selector": { "type": "string", "description": "Playwright selector of the element to hover over." },
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
@@ -378,7 +412,7 @@
       "required": ["action"],
       "properties": {
         "action": { "type": "string", "const": "zoom" },
-        "selector": { "type": "string", "description": "CSS selector or XPath expression to zoom into (centers on the element)." },
+        "selector": { "type": "string", "description": "Playwright selector to zoom into (centers on the element)." },
         "scale": { "type": "number", "description": "Zoom scale. Default: 2. Set to 1 to reset." },
         "x": { "type": "number", "description": "X coordinate to zoom into (if no selector)." },
         "y": { "type": "number", "description": "Y coordinate to zoom into (if no selector)." },

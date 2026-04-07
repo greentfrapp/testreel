@@ -7,11 +7,14 @@ import defaultCursor from './default.png'
 import pointerCursor from './pointer.png'
 // @ts-expect-error -- .png resolved to absolute path by esbuild plugin
 import textCursor from './text.png'
+// @ts-expect-error -- .png resolved to absolute path by esbuild plugin
+import touchCursor from './touch.png'
 
 const CURSOR_MAP: Record<CursorStyle, string> = {
   default: defaultCursor,
   pointer: pointerCursor,
   text: textCursor,
+  touch: touchCursor,
 }
 
 export const CURSOR_STYLES = Object.keys(CURSOR_MAP) as CursorStyle[]

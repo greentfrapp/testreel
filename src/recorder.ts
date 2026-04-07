@@ -1,6 +1,5 @@
 import fs from 'fs'
 import path from 'path'
-
 import { ACTIONS } from './actions'
 import { createCursorTracker } from './cursor'
 import { log, logError, logVerbose } from './logger'
@@ -14,11 +13,28 @@ import type {
   RecordOptions,
   RecordingDefinition,
   RecordingResult,
+  Step,
   StepTiming,
 } from './types'
-import { timestamp } from './utils'
+import { cleanOutputDir, computeOutputSizeLayout, timestamp } from './utils'
 import { loadDefinition } from './validation'
 import { createZoomState } from './zoom'
+
+/** Steps that involve cursor movement or explicit cursor visibility control. */
+const CURSOR_RELEVANT_ACTIONS = new Set<Step['action']>([
+  'click',
+  'hover',
+  'type',
+  'fill',
+  'select',
+  'clear',
+  'hideCursor',
+  'showCursor',
+])
+
+function hasCursorRelevantSteps(steps: Step[]): boolean {
+  return steps.some((s) => CURSOR_RELEVANT_ACTIONS.has(s.action))
+}
 
 export async function record(
   input: RecordingDefinition | string,
@@ -53,8 +69,19 @@ export async function record(
 
   fs.mkdirSync(outputDir, { recursive: true })
 
+  if (options.clean) {
+    cleanOutputDir(outputDir)
+  }
+
   const viewport = def.viewport ?? { width: 1280, height: 720 }
-  const scale = options.scale ?? def.scale ?? 1
+  const outputSizeLayout = def.outputSize
+    ? computeOutputSizeLayout(
+        def.outputSize,
+        viewport,
+        def.chrome,
+        def.background,
+      )
+    : undefined
   const zoomState = createZoomState()
   const screenshots: string[] = []
 
@@ -76,7 +103,6 @@ export async function record(
 
     const setupContextOptions: Record<string, unknown> = {
       viewport,
-      deviceScaleFactor: scale,
       colorScheme: def.colorScheme ?? 'light',
     }
 
@@ -126,7 +152,6 @@ export async function record(
       outputDir,
       zoomState: createZoomState(),
       cursorEnabled: false,
-      scale,
     }
     for (const [i, step] of setup.steps.entries()) {
       const label =
@@ -160,11 +185,10 @@ export async function record(
   // --- Recording phase (with video) ---
   const contextOptions: Record<string, unknown> = {
     viewport,
-    deviceScaleFactor: scale,
     colorScheme: def.colorScheme ?? 'light',
     recordVideo: {
       dir: outputDir,
-      size: { width: viewport.width * scale, height: viewport.height * scale },
+      size: { width: viewport.width, height: viewport.height },
     },
   }
 
@@ -187,6 +211,30 @@ export async function record(
   }
 
   const page = await context.newPage()
+
+  // Normalize cursor options — enabled by default
+  const cursorConfig = def.cursor
+  const cursorExplicit = cursorConfig !== undefined
+  let cursorEnabled =
+    cursorConfig === undefined ||
+    cursorConfig === true ||
+    (typeof cursorConfig === 'object' && cursorConfig.enabled !== false)
+  // Skip cursor pipeline entirely when the recording has no cursor-relevant
+  // steps and the user did not explicitly opt in.
+  if (cursorEnabled && !cursorExplicit && !hasCursorRelevantSteps(def.steps)) {
+    cursorEnabled = false
+  }
+  const cursorOptions: CursorOptions | undefined = cursorEnabled
+    ? typeof cursorConfig === 'object'
+      ? cursorConfig
+      : {}
+    : undefined
+
+  // Create cursor tracker immediately after page creation so its time base
+  // aligns with the video recording start. Moving this after navigation would
+  // shift all cursor/ripple overlay timestamps earlier than the screencast.
+  const cursorTracker = cursorEnabled ? createCursorTracker() : undefined
+
   const needsScrollRestore =
     setupScroll && (setupScroll.x !== 0 || setupScroll.y !== 0)
 
@@ -268,19 +316,8 @@ export async function record(
       )
   }
 
-  // Normalize cursor options — enabled by default
-  const cursorConfig = def.cursor
-  const cursorEnabled =
-    cursorConfig === undefined ||
-    cursorConfig === true ||
-    (typeof cursorConfig === 'object' && cursorConfig.enabled !== false)
-  const cursorOptions: CursorOptions | undefined = cursorEnabled
-    ? typeof cursorConfig === 'object'
-      ? cursorConfig
-      : {}
-    : undefined
-
-  const cursorTracker = cursorEnabled ? createCursorTracker(scale) : undefined
+  // Determine if frame compositing will be active (for FFmpeg zoom)
+  const hasFrameForZoom = !!(def.chrome || def.background)
 
   // Execute steps
   const ctx: ActionContext = {
@@ -289,7 +326,7 @@ export async function record(
     cursorEnabled,
     cursorOptions,
     cursorTracker,
-    scale,
+    useFFmpegZoom: hasFrameForZoom,
   }
   const globalSpeed = options.speed ?? def.speed ?? 1.0
   const stepTimings: StepTiming[] = []
@@ -329,6 +366,21 @@ export async function record(
 
     if (step.action !== 'wait') {
       await page.waitForTimeout(step.pauseAfter ?? 500)
+    }
+
+    // Zoom out after click+pause — unless the next step is also a zoom click
+    if (step.action === 'click' && (step as import('./types').ClickStep).zoom) {
+      const nextStep = def.steps[i + 1]
+      const nextHasZoom =
+        nextStep?.action === 'click' &&
+        (nextStep as import('./types').ClickStep).zoom
+      if (!nextHasZoom) {
+        await ACTIONS.zoom(
+          page,
+          { action: 'zoom', scale: 1 } as import('./types').ZoomStep,
+          ctx,
+        )
+      }
     }
 
     const stepEnd = (Date.now() - stepTimerStart) / 1000
@@ -400,19 +452,32 @@ export async function record(
       ? { ...chromeConfig }
       : {}
     : undefined
-  const bgOpts = hasBackground
+  let bgOpts: import('./types').BackgroundOptions | undefined = hasBackground
     ? typeof bgConfig === 'object'
-      ? bgConfig
+      ? { ...bgConfig }
       : {}
     : undefined
   if (chromeOpts && chromeOpts.url === true) {
     chromeOpts = { ...chromeOpts, url: def.url }
   }
 
+  // Apply outputSize layout: override padding and enable background if needed
+  let windowScale: number | undefined
+  if (outputSizeLayout) {
+    if (!bgOpts) {
+      bgOpts = {}
+    }
+    bgOpts = { ...bgOpts, padding: outputSizeLayout.padding }
+    if (outputSizeLayout.windowScale < 1) {
+      windowScale = outputSizeLayout.windowScale
+    }
+  }
+
+  const hasFrame = !!(chromeOpts || bgOpts)
+
   const needsSpeed =
     globalSpeed !== 1.0 || stepTimings.some((t) => t.speed !== 1.0)
-  const needsPipeline =
-    cursorEventsForPipeline || hasChrome || hasBackground || needsSpeed
+  const needsPipeline = cursorEventsForPipeline || hasFrame || needsSpeed
 
   if (needsPipeline && videoPath) {
     log('  post-processing...')
@@ -423,21 +488,24 @@ export async function record(
           ? {
               events: cursorEventsForPipeline,
               defaultStyle: cursorOptions?.style ?? 'default',
-              size: (cursorOptions?.size ?? 24) * scale,
+              size: cursorOptions?.size ?? 48,
+              idleHide: cursorOptions?.idleHide,
+              idleHideMs: cursorOptions?.idleHideMs,
+              fadeMs: cursorOptions?.fadeMs,
             }
           : undefined,
-        frame:
-          hasChrome || hasBackground
-            ? {
-                chrome: chromeOpts,
-                background: bgOpts,
-                videoWidth: viewport.width * scale,
-                videoHeight: viewport.height * scale,
-                screenshots,
-                scale,
-              }
-            : undefined,
+        frame: hasFrame
+          ? {
+              chrome: chromeOpts,
+              background: bgOpts,
+              videoWidth: viewport.width,
+              videoHeight: viewport.height,
+              screenshots,
+              windowScale,
+            }
+          : undefined,
         speed: needsSpeed ? { stepTimings, globalSpeed } : undefined,
+        outputSize: def.outputSize,
       })
       if (processedPath !== videoPath) {
         fs.unlinkSync(videoPath)

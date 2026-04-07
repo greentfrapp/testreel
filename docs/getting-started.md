@@ -18,14 +18,17 @@ Create a file called `recording.json`:
 
 ```json
 {
-  "url": "https://en.wikipedia.org/wiki/Main_Page",
+  "url": "https://demo.playwright.dev/todomvc",
   "viewport": { "width": 1280, "height": 720 },
   "steps": [
     { "action": "wait", "ms": 1000 },
-    { "action": "screenshot", "name": "homepage" },
-    { "action": "scroll", "y": 400 },
-    { "action": "wait", "ms": 1000 },
-    { "action": "screenshot", "name": "scrolled" }
+    { "action": "type", "selector": ".new-todo", "text": "Buy groceries" },
+    { "action": "keyboard", "key": "Enter" },
+    { "action": "type", "selector": ".new-todo", "text": "Walk the dog" },
+    { "action": "keyboard", "key": "Enter" },
+    { "action": "screenshot", "name": "todos-added" },
+    { "action": "click", "selector": ".todo-list li:first-child .toggle" },
+    { "action": "screenshot", "name": "first-completed" }
   ]
 }
 ```
@@ -67,20 +70,6 @@ npx testreel recording.json --dry-run
 npx testreel validate recording.json
 ```
 
-## Using the API
-
-Testreel can also be used as a library:
-
-```js
-import { record, loadDefinition } from 'testreel'
-
-const def = loadDefinition('recording.json')
-const result = await record(def, { outputDir: './output' })
-
-console.log(result.video)       // path to .webm file
-console.log(result.screenshots) // array of .png paths
-```
-
 ## Recording from Playwright tests
 
 If you already have a Playwright test suite, you can add video recording with minimal changes — just compose testreel's fixtures and swap `test` for `recorded`:
@@ -101,7 +90,25 @@ recorded('onboarding flow', async ({ page }) => {
 })
 ```
 
-For manual control without the fixture, use `recordPage()` directly:
+See the [Playwright Integration](playwright.md) guide for full details.
+
+## Using the API
+
+### From a definition
+
+```js
+import { record, loadDefinition } from 'testreel'
+
+const def = loadDefinition('recording.json')
+const result = await record(def, { outputDir: './output' })
+
+console.log(result.video)       // path to .webm file
+console.log(result.screenshots) // array of .png paths
+```
+
+### Recording a page directly
+
+For manual control over an existing Playwright page, use `recordPage()`:
 
 ```js
 import { recordPage } from 'testreel'
@@ -112,8 +119,6 @@ await recorder.click('.button')
 const result = await recorder.stop()
 console.log(result.video)
 ```
-
-See the [Playwright Integration](playwright.md) guide for full details.
 
 ## Next steps
 

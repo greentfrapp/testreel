@@ -1,0 +1,39 @@
+// Equivalent to playwright-demo.test.ts — same recording as a config file.
+//
+// Run:
+//   npx testreel examples/demo.jsonc --output ./demo-output
+{
+  "url": "https://demo.playwright.dev/todomvc",
+  "viewport": { "width": 1280, "height": 720 },
+  "chrome": { "url": true },
+  "background": {
+    "gradient": { "from": "#667eea", "to": "#764ba2" },
+    "padding": 60,
+    "borderRadius": 12
+  },
+
+  "steps": [
+    { "action": "wait", "ms": 1000 },
+
+    // Add a few todos
+    { "action": "type", "selector": ".new-todo", "text": "Buy groceries" },
+    { "action": "keyboard", "key": "Enter" },
+    { "action": "type", "selector": ".new-todo", "text": "Walk the dog" },
+    { "action": "keyboard", "key": "Enter" },
+
+    // Complete a todo
+    { "action": "click", "selector": ".todo-list li:nth-child(1) .toggle" },
+
+    // Filter to completed and clear them
+    { "action": "click", "selector": ".filters a[href=\"#/completed\"]", "zoom": 1.5 },
+    { "action": "click", "selector": ".clear-completed", "zoom": 2 },
+
+    // Filter back to all todos
+    { "action": "click", "selector": ".filters a[href=\"#/\"]", "zoom": 1.5 },
+
+    // Delete the remaining todo
+    { "action": "hover", "selector": ".todo-list li:first-child" },
+    { "action": "click", "selector": ".todo-list li:first-child .destroy", "zoom": 2 },
+    { "action": "wait", "ms": 1000 }
+  ]
+}

@@ -27,7 +27,6 @@ program
   )
   .option('--format <fmt>', 'Output format: webm, mp4, gif')
   .option('--speed <n>', 'Playback speed multiplier')
-  .option('--scale <n>', 'Device scale factor (1 = standard, 2 = Retina/HiDPI)')
   .option('--headed', 'Run browser in headed mode')
   .option(
     '--dry-run',
@@ -35,6 +34,7 @@ program
   )
   .option('--verbose', 'Enable detailed output (per-step timing, diagnostics)')
   .option('--quiet', 'Suppress all output except errors and final output paths')
+  .option('--clean', 'Remove previous output files before recording')
   .option('--keep-intermediates', 'Keep intermediate files (cursor JSON, etc.)')
   .action(
     async (
@@ -44,11 +44,11 @@ program
         setup?: string
         format?: string
         speed?: string
-        scale?: string
         headed?: boolean
         dryRun?: boolean
         verbose?: boolean
         quiet?: boolean
+        clean?: boolean
         keepIntermediates?: boolean
       },
     ) => {
@@ -95,16 +95,6 @@ program
         }
       }
 
-      // Validate --scale
-      let scale: number | undefined
-      if (opts.scale) {
-        scale = parseFloat(opts.scale)
-        if (isNaN(scale) || scale <= 0) {
-          console.error('Error: --scale must be a positive number')
-          process.exit(1)
-        }
-      }
-
       // Load and validate definition
       let def
       try {
@@ -147,7 +137,7 @@ program
           setup,
           outputFormat,
           speed,
-          scale,
+          clean: opts.clean,
           keepIntermediates: opts.keepIntermediates,
         })
 

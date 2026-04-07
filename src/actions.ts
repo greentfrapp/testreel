@@ -1,7 +1,9 @@
 import path from 'path'
-import type { Page } from 'playwright-core'
+import type { Locator, Page } from 'playwright-core'
 import {
+  hideCursor as defaultHideCursor,
   moveCursorTo as defaultMoveCursorTo,
+  showCursor as defaultShowCursor,
   triggerRipple as defaultTriggerRipple,
 } from './cursor'
 import { logError } from './logger'
@@ -10,13 +12,17 @@ import type {
   ActionName,
   ClearStep,
   ClickStep,
+  CursorOptions,
+  CursorStyle,
   FillStep,
+  HideCursorStep,
   HoverStep,
   KeyboardStep,
   NavigateStep,
   ScreenshotStep,
   ScrollStep,
   SelectStep,
+  ShowCursorStep,
   Step,
   TypeStep,
   WaitForNetworkStep,
@@ -24,7 +30,58 @@ import type {
   ZoomStep,
 } from './types'
 import { sanitizeFilename, timestamp } from './utils'
+
+type SelectorOrLocator = string | Locator
+
+function resolveLocator(page: Page, selector: SelectorOrLocator): Locator {
+  return typeof selector === 'string' ? page.locator(selector) : selector
+}
 // zoom suspend/restore no longer needed — all actions use screen coordinates
+
+/** Detect cursor style from a target element (pointer, text, default, etc.) */
+export async function detectCursorStyle(
+  locator: Locator,
+  options?: CursorOptions,
+): Promise<CursorStyle> {
+  if (options?.style === 'touch') return 'touch'
+  const style = await locator.evaluate((el) => {
+    const computed = window.getComputedStyle(el).cursor
+    if (computed === 'pointer' || computed === 'text') return computed
+    if (computed === 'auto' || computed === '' || computed === 'default') {
+      const tag = el.tagName.toLowerCase()
+      if (
+        tag === 'a' ||
+        tag === 'button' ||
+        tag === 'select' ||
+        tag === 'summary' ||
+        el.closest('a') ||
+        el.closest('button') ||
+        el.getAttribute('role') === 'button' ||
+        el.getAttribute('role') === 'link'
+      )
+        return 'pointer'
+      if (tag === 'textarea' || (el as HTMLElement).isContentEditable)
+        return 'text'
+      if (tag === 'input') {
+        const t = ((el as HTMLInputElement).type || 'text').toLowerCase()
+        return [
+          'text',
+          'search',
+          'url',
+          'tel',
+          'email',
+          'password',
+          'number',
+          '',
+        ].includes(t)
+          ? 'text'
+          : 'pointer'
+      }
+    }
+    return 'default'
+  })
+  return style as CursorStyle
+}
 
 function getMoveCursorTo(ctx: ActionContext) {
   return ctx.cursorTracker
@@ -55,31 +112,28 @@ const DEFAULT_SELECTOR_TIMEOUT = 5000
 /** Wait for a selector to become visible, retrying until timeout. */
 export async function awaitSelector(
   page: Page,
-  selector: string,
+  selector: SelectorOrLocator,
   timeout: number,
 ): Promise<void> {
-  await page.locator(selector).waitFor({ state: 'visible', timeout })
+  await resolveLocator(page, selector).waitFor({ state: 'visible', timeout })
 }
 
 /** Get the screen-space center of an element (includes CSS transform effects). */
 export async function getScreenCenter(
   page: Page,
-  selector: string,
+  selector: SelectorOrLocator,
 ): Promise<{ x: number; y: number } | null> {
-  return page.evaluate((sel: string) => {
-    const el = document.querySelector(sel)
-    if (!el) return null
-    const rect = el.getBoundingClientRect()
-    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
-  }, selector)
+  const box = await resolveLocator(page, selector).boundingBox()
+  if (!box) return null
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
 }
 
 /** Focus an element without changing zoom. Works at any zoom level. */
-export async function focusElement(page: Page, selector: string): Promise<void> {
-  await page.evaluate((sel: string) => {
-    const el = document.querySelector(sel) as HTMLElement | null
-    el?.focus()
-  }, selector)
+export async function focusElement(
+  page: Page,
+  selector: SelectorOrLocator,
+): Promise<void> {
+  await resolveLocator(page, selector).focus()
 }
 
 async function handleWait(page: Page, step: WaitStep): Promise<void> {
@@ -96,16 +150,30 @@ async function handleClick(
     step.selector,
     step.timeout ?? DEFAULT_SELECTOR_TIMEOUT,
   )
-  if (ctx.cursorEnabled) {
+  // Skip cursor move here when zoom is set — handleZoom will move it
+  if (ctx.cursorEnabled && !step.zoom) {
     await getMoveCursorTo(ctx)(
       page,
       step.selector,
       ctx.zoomState,
       ctx.cursorOptions,
     )
-    await getTriggerRipple(ctx)(page, ctx.cursorOptions)
   }
+
+  // Zoom in before clicking if requested
+  if (step.zoom && step.zoom > 1) {
+    await handleZoom(
+      page,
+      { action: 'zoom', selector: step.selector, scale: step.zoom },
+      ctx,
+    )
+  }
+
   const center = await getScreenCenter(page, step.selector)
+  if (ctx.cursorEnabled) {
+    await getTriggerRipple(ctx)(page, ctx.cursorOptions)
+    await page.waitForTimeout(100)
+  }
   if (center) {
     await page.mouse.click(center.x, center.y)
   }
@@ -127,6 +195,7 @@ async function handleType(
       step.selector,
       ctx.zoomState,
       ctx.cursorOptions,
+      true,
     )
     if (step.clear) await getTriggerRipple(ctx)(page, ctx.cursorOptions)
   }
@@ -158,6 +227,7 @@ async function handleClear(
       step.selector,
       ctx.zoomState,
       ctx.cursorOptions,
+      true,
     )
     await getTriggerRipple(ctx)(page, ctx.cursorOptions)
   }
@@ -182,20 +252,13 @@ async function handleFill(
       step.selector,
       ctx.zoomState,
       ctx.cursorOptions,
+      true,
     )
   }
-  // Focus and set value via evaluate to avoid zoom suspend
-  await page.evaluate(
-    ({ sel, text }: { sel: string; text: string }) => {
-      const el = document.querySelector(sel) as HTMLInputElement | null
-      if (!el) return
-      el.focus()
-      el.value = text
-      el.dispatchEvent(new Event('input', { bubbles: true }))
-      el.dispatchEvent(new Event('change', { bubbles: true }))
-    },
-    { sel: step.selector, text: step.text },
-  )
+  // Focus and set value via locator
+  const locator = page.locator(step.selector)
+  await locator.focus()
+  await locator.fill(step.text)
 }
 
 async function handleSelect(
@@ -214,19 +277,11 @@ async function handleSelect(
       step.selector,
       ctx.zoomState,
       ctx.cursorOptions,
+      true,
     )
   }
-  // Set select value via evaluate to avoid zoom suspend
-  await page.evaluate(
-    ({ sel, value }: { sel: string; value: string }) => {
-      const el = document.querySelector(sel) as HTMLSelectElement | null
-      if (!el) return
-      el.focus()
-      el.value = value
-      el.dispatchEvent(new Event('change', { bubbles: true }))
-    },
-    { sel: step.selector, value: step.value },
-  )
+  // Set select value via locator
+  await page.locator(step.selector).selectOption(step.value)
 }
 
 async function handleScroll(
@@ -337,28 +392,45 @@ async function handleZoom(
   ctx: ActionContext,
 ): Promise<void> {
   const scale = step.scale ?? 2
-  const duration = step.duration ?? 600
+  let duration = step.duration ?? 600
 
-  if (ctx.cursorEnabled && step.selector) {
-    await getMoveCursorTo(ctx)(
-      page,
-      step.selector,
-      ctx.zoomState,
-      ctx.cursorOptions,
-    )
+  if (ctx.cursorEnabled && step.selector && ctx.cursorTracker) {
+    // Compute target position and cursor speed-based transition duration,
+    // then use that duration for the zoom pan so both move in sync.
+    const loc = page.locator(step.selector)
+    const box = await loc.boundingBox()
+    if (box) {
+      const { scale: curScale, tx: curTx, ty: curTy } = ctx.zoomState
+      const screenX = box.x + box.width / 2
+      const screenY = box.y + box.height / 2
+      const layoutX = curScale === 1 ? screenX : screenX / curScale - curTx
+      const layoutY = curScale === 1 ? screenY : screenY / curScale - curTy
+      // Cursor speed determines the duration for both cursor and viewport
+      const cursorMs = ctx.cursorTracker.computeTransitionMs(layoutX, layoutY)
+      if (!step.duration) duration = Math.max(duration, cursorMs)
+      const detectedStyle = await detectCursorStyle(loc, ctx.cursorOptions)
+      // Don't await — record move event immediately, then zoom event right after
+      void ctx.cursorTracker.moveCursorToPoint(page, layoutX, layoutY, {
+        ...ctx.cursorOptions,
+        style: detectedStyle,
+        transitionMs: duration,
+      })
+    }
   }
 
   if (scale === 1 && !step.selector) {
-    ctx.zoomState.scale = 1
-    ctx.zoomState.tx = 0
-    ctx.zoomState.ty = 0
-    if (ctx.cursorTracker) ctx.cursorTracker.setZoom(1, duration)
-    await page.evaluate((ms: number) => {
-      const html = document.documentElement
-      html.style.transition = `transform ${ms}ms ease-in-out`
-      html.style.transformOrigin = 'top left'
-      html.style.transform = 'scale(1) translate(0px, 0px)'
-    }, duration)
+    if (ctx.cursorTracker) ctx.cursorTracker.setZoom(1, duration, 0, 0)
+    if (!ctx.useFFmpegZoom) {
+      ctx.zoomState.scale = 1
+      ctx.zoomState.tx = 0
+      ctx.zoomState.ty = 0
+      await page.evaluate((ms: number) => {
+        const html = document.documentElement
+        html.style.transition = `transform ${ms}ms ease-in-out`
+        html.style.transformOrigin = 'top left'
+        html.style.transform = 'scale(1) translate(0px, 0px)'
+      }, duration)
+    }
     await page.waitForTimeout(duration + 100)
     return
   }
@@ -369,24 +441,13 @@ async function handleZoom(
 
   if (step.selector) {
     const { scale: curScale, tx: curTx, ty: curTy } = ctx.zoomState
-    const center = await page.evaluate(
-      ({ sel, s, tx, ty }: { sel: string; s: number; tx: number; ty: number }) => {
-        const el = document.querySelector(sel)
-        if (!el) return null
-        const rect = el.getBoundingClientRect()
-        const screenX = rect.x + rect.width / 2
-        const screenY = rect.y + rect.height / 2
-        // Reverse CSS transform to get layout coordinates
-        return {
-          x: s === 1 ? screenX : screenX / s - tx,
-          y: s === 1 ? screenY : screenY / s - ty,
-        }
-      },
-      { sel: step.selector, s: curScale, tx: curTx, ty: curTy },
-    )
-    if (!center) throw new Error(`zoom target '${step.selector}' not found`)
-    targetX = center.x
-    targetY = center.y
+    const box = await page.locator(step.selector).boundingBox()
+    if (!box) throw new Error(`zoom target '${step.selector}' not found`)
+    const screenX = box.x + box.width / 2
+    const screenY = box.y + box.height / 2
+    // Reverse CSS transform to get layout coordinates
+    targetX = curScale === 1 ? screenX : screenX / curScale - curTx
+    targetY = curScale === 1 ? screenY : screenY / curScale - curTy
   } else {
     targetX = step.x ?? 640
     targetY = step.y ?? 360
@@ -403,32 +464,65 @@ async function handleZoom(
   const clampedTx = Math.min(0, Math.max(vw / scale - vw, tx))
   const clampedTy = Math.min(0, Math.max(vh / scale - vh, ty))
 
-  ctx.zoomState.scale = scale
-  ctx.zoomState.tx = clampedTx
-  ctx.zoomState.ty = clampedTy
-  if (ctx.cursorTracker) ctx.cursorTracker.setZoom(scale, duration)
+  if (ctx.cursorTracker)
+    ctx.cursorTracker.setZoom(scale, duration, clampedTx, clampedTy)
 
-  await page.evaluate(
-    ({
-      scale,
-      tx,
-      ty,
-      ms,
-    }: {
-      scale: number
-      tx: number
-      ty: number
-      ms: number
-    }) => {
-      const html = document.documentElement
-      html.style.transition = `transform ${ms}ms ease-in-out`
-      html.style.transformOrigin = 'top left'
-      html.style.transform = `scale(${scale}) translate(${tx}px, ${ty}px)`
-    },
-    { scale, tx: clampedTx, ty: clampedTy, ms: duration },
-  )
+  if (!ctx.useFFmpegZoom) {
+    // Only update zoomState when CSS transform is actually applied.
+    // When FFmpeg handles zoom, zoomState must stay at scale=1 so that
+    // subsequent actions compute coordinates correctly (no CSS transform
+    // to reverse).
+    ctx.zoomState.scale = scale
+    ctx.zoomState.tx = clampedTx
+    ctx.zoomState.ty = clampedTy
+    await page.evaluate(
+      ({
+        scale,
+        tx,
+        ty,
+        ms,
+      }: {
+        scale: number
+        tx: number
+        ty: number
+        ms: number
+      }) => {
+        const html = document.documentElement
+        html.style.transition = `transform ${ms}ms ease-in-out`
+        html.style.transformOrigin = 'top left'
+        html.style.transform = `scale(${scale}) translate(${tx}px, ${ty}px)`
+      },
+      { scale, tx: clampedTx, ty: clampedTy, ms: duration },
+    )
+  }
 
   await page.waitForTimeout(duration + 100)
+}
+
+async function handleHideCursor(
+  page: Page,
+  _step: HideCursorStep,
+  ctx: ActionContext,
+): Promise<void> {
+  if (!ctx.cursorEnabled) return
+  if (ctx.cursorTracker) {
+    await ctx.cursorTracker.hideCursor(page)
+  } else {
+    await defaultHideCursor(page)
+  }
+}
+
+async function handleShowCursor(
+  page: Page,
+  _step: ShowCursorStep,
+  ctx: ActionContext,
+): Promise<void> {
+  if (!ctx.cursorEnabled) return
+  if (ctx.cursorTracker) {
+    await ctx.cursorTracker.showCursor(page)
+  } else {
+    await defaultShowCursor(page)
+  }
 }
 
 async function handleWaitForNetwork(
@@ -456,4 +550,6 @@ export const ACTIONS: Record<ActionName, ActionHandler> = {
   screenshot: action<ScreenshotStep>(handleScreenshot),
   zoom: action<ZoomStep>(handleZoom),
   waitForNetwork: action<WaitForNetworkStep>(handleWaitForNetwork),
+  hideCursor: action<HideCursorStep>(handleHideCursor),
+  showCursor: action<ShowCursorStep>(handleShowCursor),
 }

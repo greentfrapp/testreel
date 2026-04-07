@@ -3,7 +3,7 @@
  *
  * Run from the testreel package directory:
  *   cd testreel
- *   pnpm exec playwright test --config examples/playwright.config.ts
+ *   pnpm exec playwright test --config examples/playwright.config.ts playwright-demo
  *
  * Or via the package script:
  *   pnpm test:examples
@@ -11,17 +11,11 @@
  * Output:
  *   Videos and screenshots are attached to the Playwright HTML report.
  *   Open it with: pnpm exec playwright show-report
- *
- * This example uses the drop-in `page` fixture — your existing Playwright tests
- * work unchanged, just swap `test` for `recorded`. For advanced features like
- * cursor animation and zoom, see playwright-composable.test.ts which uses
- * the `testreelPage` (PageRecorder) fixture.
  */
+import { test as base } from '@playwright/test'
+import { type TestreelFixtures, testreelFixtures } from 'testreel/playwright'
 
-import { test, expect } from '@playwright/test'
-import { testreelFixtures, type TestreelFixtures } from 'testreel/playwright'
-
-const recorded = test.extend<TestreelFixtures>({
+const recorded = base.extend<TestreelFixtures>({
   ...testreelFixtures,
 })
 
@@ -29,39 +23,39 @@ const recorded = test.extend<TestreelFixtures>({
 recorded.use({
   testreelOptions: {
     viewport: { width: 1280, height: 720 },
+    chrome: { url: true },
+    background: {
+      gradient: { from: '#667eea', to: '#764ba2' },
+      padding: 60,
+      borderRadius: 12,
+    },
   },
 })
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
-recorded('Wikipedia — browse and read an article', async ({ page }) => {
-  // Navigate to Wikipedia
-  await page.goto('https://en.wikipedia.org/wiki/Main_Page')
-  await page.waitForTimeout(1000)
+recorded('TodoMVC — manage completed todos', async ({ testreelPage }) => {
+  await testreelPage.navigate('https://demo.playwright.dev/todomvc')
+  await testreelPage.wait(1000)
 
-  // Scroll down to the "From today's featured article" section
-  await page.evaluate(() => window.scrollBy(0, 400))
-  await page.waitForTimeout(500)
+  // Add a few todos
+  await testreelPage.type('.new-todo', 'Buy groceries')
+  await testreelPage.keyboard('Enter')
+  await testreelPage.type('.new-todo', 'Walk the dog')
+  await testreelPage.keyboard('Enter')
 
-  // Click the first link in the featured article
-  await page.click('#mp-tfa-img a')
-  await page.waitForTimeout(2000)
+  // Complete a todo
+  await testreelPage.click('.todo-list li:nth-child(1) .toggle')
 
-  // Scroll through the article
-  await page.evaluate(() => window.scrollBy(0, 500))
-  await page.waitForTimeout(1000)
-})
+  // Filter to completed and clear them
+  await testreelPage.click('.filters a[href="#/completed"]', { zoom: 1.5 })
+  await testreelPage.click('.clear-completed', { zoom: 2 })
 
-recorded('Wikipedia — search for a topic', async ({ page }) => {
-  await page.goto('https://en.wikipedia.org/wiki/Main_Page')
-  await page.waitForTimeout(1000)
+  // Filter back to all todos
+  await testreelPage.click('.filters a[href="#/"]', { zoom: 1.5 })
 
-  // Click the search input and type a query
-  await page.click('#searchInput')
-  await page.fill('#searchform input[name="search"]', 'Playwright browser automation')
-  await page.waitForTimeout(1000)
-
-  // Submit the search
-  await page.keyboard.press('Enter')
-  await page.waitForTimeout(2000)
+  // Delete the remaining todo
+  await testreelPage.hover('.todo-list li:first-child')
+  await testreelPage.click('.todo-list li:first-child .destroy', { zoom: 2 })
+  await testreelPage.wait(1000)
 })

@@ -2,13 +2,26 @@ import { test as base } from '@playwright/test'
 import type { Page } from 'playwright-core'
 import { recordPage } from './record-page.js'
 import type { PageRecorder, RecordPageOptions } from './record-page.js'
+import { sanitizeFilename } from './utils.js'
 
 export type TestreelFixtures = {
+  /**
+   * Standard Playwright Page with video recording enabled.
+   * Use for setup steps, assertions, and any interaction that does **not**
+   * need a cursor animation in the final recording.
+   */
   page: Page
+  /**
+   * Testreel page recorder. Actions performed through this object are
+   * captured with animated cursor movement, click ripples, and
+   * post-processing (window chrome, background, speed changes).
+   * Use for the visible demo steps you want in the final video.
+   * Access the underlying page via `testreelPage.page` when needed.
+   */
   testreelPage: PageRecorder
+  /** Configuration for the testreel recording. Set via `test.use({ testreelOptions: { ... } })`. */
   testreelOptions: RecordPageOptions & {
     viewport?: { width: number; height: number }
-    deviceScaleFactor?: number
   }
 }
 
@@ -28,11 +41,8 @@ export const testreelFixtures: Parameters<
 
   page: async ({ browser, testreelOptions }, use, testInfo) => {
     const projectUse = testInfo.project.use
-    const viewport =
-      testreelOptions.viewport ?? projectUse.viewport ?? { width: 1280, height: 720 }
-    const scale =
-      testreelOptions.deviceScaleFactor ?? projectUse.deviceScaleFactor ?? 1
-
+    const viewport = testreelOptions.viewport ??
+      projectUse.viewport ?? { width: 1280, height: 720 }
     const context = await browser.newContext({
       ...projectUse.contextOptions,
       storageState: projectUse.storageState,
@@ -41,51 +51,47 @@ export const testreelFixtures: Parameters<
       geolocation: projectUse.geolocation,
       permissions: projectUse.permissions,
       viewport,
-      deviceScaleFactor: scale,
       recordVideo: {
         dir: testInfo.outputDir,
         size: {
-          width: viewport.width * scale,
-          height: viewport.height * scale,
+          width: viewport.width,
+          height: viewport.height,
         },
       },
     })
 
     const page = await context.newPage()
+    ;(page as any)._videoStartedAt = Date.now()
     await use(page)
 
     // Finalize video and attach to test report
     const video = page.video()
-    await context.close()
+    try {
+      await context.close()
+    } catch {
+      // Context may already be closed by testreelPage.stop()
+    }
     if (video) {
-      await testInfo.attach('testreel-video', {
-        path: await video.path(),
-        contentType: 'video/webm',
-      })
+      try {
+        await testInfo.attach('testreel-video', {
+          path: await video.path(),
+          contentType: 'video/webm',
+        })
+      } catch {
+        // Video may have been handled by testreelPage
+      }
     }
   },
 
-  testreelPage: async ({ browser, testreelOptions }, use, testInfo) => {
-    const viewport = testreelOptions.viewport ?? { width: 1280, height: 720 }
-    const scale =
-      testreelOptions.scale ?? testreelOptions.deviceScaleFactor ?? 1
-
-    const context = await browser.newContext({
-      viewport,
-      deviceScaleFactor: scale,
-      recordVideo: {
-        dir: testInfo.outputDir,
-        size: {
-          width: viewport.width * scale,
-          height: viewport.height * scale,
-        },
-      },
-    })
-    const page = await context.newPage()
+  testreelPage: async ({ page, testreelOptions }, use, testInfo) => {
+    const name = testreelOptions.name ?? sanitizeFilename(testInfo.title)
+    const videoStartedAt = (page as any)._videoStartedAt as number | undefined
     const recorder = await recordPage(page, {
+      clean: true,
       outputDir: testInfo.outputDir,
-      scale,
+      name,
       ...testreelOptions,
+      videoStartedAt,
     })
 
     await use(recorder)
@@ -115,4 +121,8 @@ export const testreelFixtures: Parameters<
 export const test = base.extend<TestreelFixtures>(testreelFixtures)
 
 export { expect } from '@playwright/test'
-export type { PageRecorder, RecordPageOptions } from './record-page.js'
+export type {
+  PageRecorder,
+  RecordPageOptions,
+  SelectorOrLocator,
+} from './record-page.js'

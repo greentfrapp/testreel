@@ -129,12 +129,6 @@ export function loadDefinition(input: string | object): RecordingDefinition {
     }
   }
 
-  if (def.scale !== undefined) {
-    if (typeof def.scale !== 'number' || def.scale <= 0) {
-      throw new Error("'scale' must be a positive number")
-    }
-  }
-
   if (def.speed !== undefined) {
     if (typeof def.speed !== 'number' || def.speed <= 0) {
       throw new Error("'speed' must be a number greater than 0")

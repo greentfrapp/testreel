@@ -4,20 +4,21 @@ Common recording patterns to get you started.
 
 ## Simple page walkthrough
 
-Scroll through a page and capture key sections:
+Add some todos and check one off:
 
 ```json
 {
-  "url": "https://en.wikipedia.org/wiki/Main_Page",
+  "url": "https://demo.playwright.dev/todomvc",
   "viewport": { "width": 1280, "height": 720 },
   "steps": [
     { "action": "wait", "ms": 1000 },
-    { "action": "screenshot", "name": "above-fold" },
-    { "action": "scroll", "y": 400 },
-    { "action": "wait", "ms": 1000 },
-    { "action": "click", "selector": "#mp-tfa a:first-of-type" },
-    { "action": "wait", "ms": 2000 },
-    { "action": "screenshot", "name": "article" }
+    { "action": "type", "selector": ".new-todo", "text": "Buy groceries" },
+    { "action": "keyboard", "key": "Enter" },
+    { "action": "type", "selector": ".new-todo", "text": "Walk the dog" },
+    { "action": "keyboard", "key": "Enter" },
+    { "action": "screenshot", "name": "todos-added" },
+    { "action": "click", "selector": ".todo-list li:first-child .toggle" },
+    { "action": "screenshot", "name": "first-completed" }
   ]
 }
 ```
@@ -62,6 +63,26 @@ Draw attention to a specific part of the page:
 }
 ```
 
+## Click with zoom
+
+Zoom into each click target for emphasis. Consecutive zoom clicks pan directly without zooming out in between:
+
+```json
+{
+  "url": "https://demo.playwright.dev/todomvc",
+  "viewport": { "width": 1280, "height": 720 },
+  "chrome": { "url": true },
+  "background": true,
+  "steps": [
+    { "action": "wait", "ms": 1000 },
+    { "action": "click", "selector": ".todo-list li:first-child .toggle", "zoom": 2 },
+    { "action": "click", "selector": ".filters a[href='#/active']", "zoom": 1.5 },
+    { "action": "click", "selector": ".filters a[href='#/']", "zoom": 1.5 },
+    { "action": "wait", "ms": 1000 }
+  ]
+}
+```
+
 ## GIF for pull requests
 
 Create a small, lightweight GIF to embed in a PR description:
@@ -89,10 +110,10 @@ Add macOS-style chrome and a gradient background for marketing/docs:
 {
   "url": "https://app.example.com",
   "viewport": { "width": 1280, "height": 720 },
+  "outputSize": { "width": 1920, "height": 1080 },
   "chrome": { "url": true },
   "background": {
     "gradient": { "from": "#667eea", "to": "#764ba2" },
-    "padding": 60,
     "borderRadius": 12
   },
   "outputFormat": "mp4",
@@ -104,6 +125,30 @@ Add macOS-style chrome and a gradient background for marketing/docs:
   ]
 }
 ```
+
+## Fixed output size
+
+Target a specific video resolution (e.g., 1920×1080). Padding is computed automatically to fill the gap between the viewport and the desired size:
+
+```json
+{
+  "url": "https://app.example.com",
+  "viewport": { "width": 1280, "height": 720 },
+  "outputSize": { "width": 1920, "height": 1080 },
+  "chrome": { "url": true },
+  "background": {
+    "gradient": { "from": "#667eea", "to": "#764ba2" },
+    "borderRadius": 12
+  },
+  "steps": [
+    { "action": "wait", "ms": 1000 },
+    { "action": "click", "selector": ".demo-button" },
+    { "action": "wait", "ms": 2000 }
+  ]
+}
+```
+
+The `padding` in `background` acts as a minimum — if the viewport is small enough, padding increases to fill the target size. If the viewport is too large, the window is scaled down to fit while preserving aspect ratio.
 
 ## Authenticated app recording
 

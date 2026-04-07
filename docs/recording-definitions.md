@@ -33,9 +33,9 @@ Only `url` and `steps` are required:
 | `url` | `string` | **required** | Target page URL. Supports `${VAR}` substitution. |
 | `steps` | `Step[]` | **required** | Non-empty array of actions to execute. |
 | `viewport` | `{ width, height }` | `1280×720` | Browser viewport dimensions in pixels. |
-| `scale` | `number` | `1` | Device scale factor. Set to `2` for Retina/HiDPI (2× resolution). |
+| `outputSize` | `{ width, height }` | — | Desired final video dimensions. Padding is adjusted (and the window scaled down if needed) so the output matches this size. User-specified `padding` acts as a minimum. |
 | `colorScheme` | `"light"` \| `"dark"` | `"light"` | Preferred color scheme. |
-| `waitForSelector` | `string` | — | CSS selector to wait for before executing steps. |
+| `waitForSelector` | `string` | — | Selector to wait for before executing steps. Accepts any [Playwright selector](https://playwright.dev/docs/selectors). |
 | `speed` | `number` | `1.0` | Global playback speed multiplier (> 0). Values > 1 speed up, < 1 slow down. |
 | `outputFormat` | `"webm"` \| `"mp4"` \| `"gif"` | `"webm"` | Video output format. MP4 and GIF require ffmpeg. |
 | `cursor` | `boolean` \| `CursorOptions` | `true` | Animated cursor overlay. See [Cursor options](#cursor-options). |
@@ -55,12 +55,15 @@ When `cursor` is `true` or omitted, a default cursor is rendered. Pass an object
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | `boolean` | `true` | Enable/disable the cursor. |
-| `style` | `"default"` \| `"pointer"` \| `"crosshair"` | `"default"` | Cursor image style. |
-| `size` | `number` | `24` | Cursor size in pixels. |
+| `style` | `"default"` \| `"pointer"` \| `"text"` \| `"touch"` | `"default"` | Cursor image style. `"touch"` shows a centered circle for mobile UIs. |
+| `size` | `number` | `48` | Cursor size in pixels. |
 | `color` | `string` | — | Cursor color. |
-| `rippleColor` | `string` | — | Click ripple effect color. |
-| `rippleSize` | `number` | — | Click ripple effect radius. |
-| `transitionMs` | `number` | — | Cursor movement transition duration. |
+| `rippleColor` | `string` | `'rgba(0, 0, 0, 0.4)'` | Click ripple effect color. |
+| `rippleSize` | `number` | `100` | Click ripple effect radius. Set to `0` to disable ripples. |
+| `transitionMs` | `number` | — | Override cursor movement duration. Omit for speed-based (500 px/s, clamped 100–600 ms). |
+| `idleHide` | `boolean` | `true` | Automatically fade out the cursor after a period of no movement or click activity. Disabled when the recording uses explicit `hideCursor`/`showCursor` steps. |
+| `idleHideMs` | `number` | `3000` | Idle threshold in milliseconds before the cursor auto-hides. |
+| `fadeMs` | `number` | `400` | Fade in/out duration in milliseconds for cursor hide/show transitions (both auto-hide and explicit steps). |
 
 ### Window chrome
 
@@ -81,8 +84,8 @@ Adds padding, rounded corners, and a colored or gradient background around the w
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | `boolean` | `true` | Enable/disable background. |
-| `color` | `string` | `"#6366f1"` | Solid background color (hex). |
-| `gradient` | `{ from, to }` | — | Two-color diagonal gradient. Overrides `color`. |
+| `color` | `string` | — | Solid background color (hex). |
+| `gradient` | `{ from, to }` | `{ from: '#6366f1', to: '#a855f7' }` | Two-color diagonal gradient. Overrides `color`. This is the default when neither `color` nor `gradient` is set. |
 | `padding` | `number` | `60` | Padding around the window in pixels. |
 | `borderRadius` | `number` | `12` | Corner radius in pixels. |
 
@@ -136,14 +139,14 @@ A JSON Schema is published with the package at `recording-definition.schema.json
 
 ```json
 {
-  "url": "https://en.wikipedia.org/wiki/Main_Page",
+  "url": "https://demo.playwright.dev/todomvc",
   "viewport": { "width": 1280, "height": 720 },
+  "outputSize": { "width": 1920, "height": 1080 },
 
   "cursor": { "style": "pointer" },
   "chrome": { "url": true },
   "background": {
     "gradient": { "from": "#667eea", "to": "#764ba2" },
-    "padding": 60,
     "borderRadius": 12
   },
 
@@ -152,11 +155,13 @@ A JSON Schema is published with the package at `recording-definition.schema.json
 
   "steps": [
     { "action": "wait", "ms": 1000 },
-    { "action": "scroll", "y": 300 },
-    { "action": "click", "selector": "#mp-tfa a:first-of-type" },
-    { "action": "wait", "ms": 2000 },
-    { "action": "screenshot", "name": "article" },
-    { "action": "zoom", "selector": "#firstHeading", "scale": 2, "duration": 800 },
+    { "action": "type", "selector": ".new-todo", "text": "Buy groceries" },
+    { "action": "keyboard", "key": "Enter" },
+    { "action": "type", "selector": ".new-todo", "text": "Walk the dog" },
+    { "action": "keyboard", "key": "Enter" },
+    { "action": "click", "selector": ".todo-list li:first-child .toggle" },
+    { "action": "screenshot", "name": "completed-todo" },
+    { "action": "zoom", "selector": ".todo-list", "scale": 2, "duration": 800 },
     { "action": "wait", "ms": 1500 },
     { "action": "zoom", "scale": 1 }
   ]

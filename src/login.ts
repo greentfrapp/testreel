@@ -3,7 +3,6 @@ import http from 'http'
 import net from 'net'
 import os from 'os'
 import path from 'path'
-
 import { startViewer } from './remote-viewer.js'
 import type { Viewport } from './types'
 

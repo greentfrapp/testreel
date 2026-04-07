@@ -5,19 +5,21 @@ import type { ActionContext } from '../types'
 // Minimal mock page matching cursor.test.ts pattern
 function mockPage() {
   const waitForMock = vi.fn().mockResolvedValue(undefined)
+  const boundingBoxMock = vi
+    .fn()
+    .mockResolvedValue({ x: 50, y: 50, width: 100, height: 40 })
+  const focusMock = vi.fn().mockResolvedValue(undefined)
+  const fillMock = vi.fn().mockResolvedValue(undefined)
+  const selectOptionMock = vi.fn().mockResolvedValue(undefined)
   return {
     locator: vi.fn().mockReturnValue({
       waitFor: waitForMock,
-      boundingBox: vi
-        .fn()
-        .mockResolvedValue({ x: 50, y: 50, width: 100, height: 40 }),
+      boundingBox: boundingBoxMock,
+      focus: focusMock,
+      fill: fillMock,
+      selectOption: selectOptionMock,
     }),
-    click: vi.fn().mockResolvedValue(undefined),
-    fill: vi.fn().mockResolvedValue(undefined),
-    hover: vi.fn().mockResolvedValue(undefined),
-    type: vi.fn().mockResolvedValue(undefined),
-    selectOption: vi.fn().mockResolvedValue(undefined),
-    evaluate: vi.fn().mockResolvedValue({ x: 100, y: 200 }),
+    evaluate: vi.fn().mockResolvedValue(undefined),
     waitForTimeout: vi.fn().mockResolvedValue(undefined),
     waitForResponse: vi.fn().mockResolvedValue(undefined),
     mouse: {
@@ -58,6 +60,8 @@ describe('ACTIONS registry', () => {
     'screenshot',
     'zoom',
     'waitForNetwork',
+    'hideCursor',
+    'showCursor',
   ]
 
   it('has handlers for all expected action types', () => {
@@ -91,7 +95,8 @@ describe('selector-based actions await selector', () => {
       state: 'visible',
       timeout: 5000,
     })
-    expect(page.mouse.click).toHaveBeenCalledWith(100, 200)
+    // boundingBox {x:50,y:50,w:100,h:40} → center (100, 70)
+    expect(page.mouse.click).toHaveBeenCalledWith(100, 70)
   })
 
   it('click uses custom timeout when provided', async () => {
@@ -119,8 +124,8 @@ describe('selector-based actions await selector', () => {
       state: 'visible',
       timeout: 5000,
     })
-    // fill now uses evaluate to set value directly
-    expect(page.evaluate).toHaveBeenCalled()
+    // fill now uses locator.fill()
+    expect(page.locator('#input').fill).toHaveBeenCalledWith('hello')
   })
 
   it('hover waits for selector before hovering', async () => {
@@ -135,7 +140,8 @@ describe('selector-based actions await selector', () => {
       state: 'visible',
       timeout: 5000,
     })
-    expect(page.mouse.move).toHaveBeenCalledWith(100, 200)
+    // boundingBox {x:50,y:50,w:100,h:40} → center (100, 70)
+    expect(page.mouse.move).toHaveBeenCalledWith(100, 70)
   })
 
   it('type waits for selector before typing', async () => {
@@ -179,8 +185,8 @@ describe('selector-based actions await selector', () => {
       state: 'visible',
       timeout: 5000,
     })
-    // select now uses evaluate to set value directly
-    expect(page.evaluate).toHaveBeenCalled()
+    // select now uses locator.selectOption()
+    expect(page.locator('#drop').selectOption).toHaveBeenCalledWith('opt1')
   })
 })
 
@@ -193,7 +199,7 @@ describe('XPath selector support', () => {
       baseCtx(),
     )
     expect(page.locator).toHaveBeenCalledWith('//button[@type="submit"]')
-    expect(page.mouse.click).toHaveBeenCalledWith(100, 200)
+    expect(page.mouse.click).toHaveBeenCalledWith(100, 70)
   })
 
   it('fill works with XPath selectors', async () => {
@@ -208,7 +214,9 @@ describe('XPath selector support', () => {
       baseCtx(),
     )
     expect(page.locator).toHaveBeenCalledWith('//input[@name="email"]')
-    expect(page.evaluate).toHaveBeenCalled()
+    expect(page.locator('//input[@name="email"]').fill).toHaveBeenCalledWith(
+      'test',
+    )
   })
 
   it('hover works with XPath selectors', async () => {
@@ -219,7 +227,7 @@ describe('XPath selector support', () => {
       baseCtx(),
     )
     expect(page.locator).toHaveBeenCalledWith('//a[@href="/about"]')
-    expect(page.mouse.move).toHaveBeenCalledWith(100, 200)
+    expect(page.mouse.move).toHaveBeenCalledWith(100, 70)
   })
 
   it('type works with XPath selectors', async () => {

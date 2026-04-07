@@ -1,6 +1,6 @@
 {
   "name": "testreel",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Programmatic video infrastructure for web apps",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -23,7 +23,8 @@
   },
   "files": [
     "dist",
-    "recording-definition.schema.json"
+    "recording-definition.schema.json",
+    "AGENTS.md"
   ],
   "scripts": {
     "build": "tsup",
@@ -31,6 +32,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:examples": "playwright test --config examples/playwright.config.ts",
+    "test:integration": "playwright test --config tests/integration/playwright.config.ts",
     "format": "prettier --write 'src/**/*.ts'",
     "format:check": "prettier --check 'src/**/*.ts'",
     "prepublishOnly": "tsup"
@@ -43,7 +45,11 @@
     "demo",
     "screenshot",
     "automation",
-    "pr-demo"
+    "pr-demo",
+    "screen-recording",
+    "demo-video",
+    "ci-recording",
+    "visual-testing"
   ],
   "license": "MIT",
   "repository": {
@@ -55,7 +61,7 @@
     "url": "https://github.com/greentfrapp/testreel/issues"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "peerDependencies": {
     "playwright-core": ">=1.51.0",
@@ -83,6 +89,7 @@
     "ws": "^8.19.0",
     "yaml": "^2.8.3"
   },
+  "packageManager": "pnpm@10.30.3",
   "pnpm": {
     "onlyBuiltDependencies": [
       "ffmpeg-static"

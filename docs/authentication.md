@@ -141,7 +141,7 @@ For Supabase-based apps, testreel can generate a session automatically using a s
 }
 ```
 
-This generates localStorage tokens, cookies, and headers, then merges them into the recording session.
+This generates localStorage tokens and merges them into the recording session.
 
 ## Combining methods
 

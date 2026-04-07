@@ -1,6 +1,26 @@
 # testreel
 
-Programmatic video recordings for web apps. Define interactions in JSON or reuse existing Playwright test suites, get polished screen recordings out.
+[![npm version](https://img.shields.io/npm/v/testreel)](https://www.npmjs.com/package/testreel)
+[![CI](https://github.com/greentfrapp/testreel/actions/workflows/ci.yml/badge.svg)](https://github.com/greentfrapp/testreel/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/testreel)](https://github.com/greentfrapp/testreel/blob/main/LICENSE)
+
+Programmatic video recordings for web apps. Define interactions in JSON, get polished screen recordings out.
+
+[Demo video generated with testreel](https://github.com/user-attachments/assets/77dcbbc3-0bde-49e7-99b8-a7cc249be39b)
+
+*Demo video generated with testreel*
+
+- **Let your LLM agent generate product videos** - Just point your agent at this repo and ask it to generate a demo video for your product. Testreel integrates with Playwright, which allows your agent to create recordings with mocks and demo data easily.
+- **Repeatable editable video config** - Instead of having to manually re-record a video because of a typo or a missed click, just edit the config and rerun the recording. Programmatically generate videos with polished background, and cursor and zoom animations.
+
+## Features
+
+- **Animated cursor** — configurable style, size, and click ripple effects
+- **Window chrome** — macOS-style title bar with traffic lights
+- **Background styling** — padding, rounded corners, solid or gradient backgrounds
+- **Multiple auth methods** — setup blocks, localStorage/cookies injection, storage state files, interactive login, Supabase provider
+- **Playwright integration** — test fixture and `recordPage()` API for existing test suites
+- **Output formats** — WebM (default), MP4, GIF
 
 ## Install
 
@@ -85,6 +105,8 @@ recorded('product demo', async ({ page }) => {
 })
 ```
 
+Recordings are captured regardless of test outcome — partial videos are attached to the report for debugging. See [Playwright Integration](docs/playwright.md) for composing with custom fixtures, the `PageRecorder` API, and configuration options.
+
 ### recordPage API
 
 For manual control over recording within any Playwright script:
@@ -93,26 +115,12 @@ For manual control over recording within any Playwright script:
 import { recordPage } from 'testreel'
 
 // page must belong to a context created with recordVideo
-const recorder = await recordPage(page, { scale: 2, chrome: true })
+const recorder = await recordPage(page, { chrome: true })
 await recorder.click('.button')
 await recorder.type('#search', 'hello')
 const result = await recorder.stop() // finalizes video + post-processing
 console.log(result.video)
 ```
-
-## Features
-
-- **13 actions** — click, type, fill, clear, select, scroll, hover, keyboard, navigate, screenshot, zoom, wait, waitForNetwork
-- **Animated cursor** — configurable style, size, and click ripple effects
-- **Window chrome** — macOS-style title bar with traffic lights
-- **Background styling** — padding, rounded corners, solid or gradient backgrounds
-- **Multiple auth methods** — setup blocks, localStorage/cookies injection, storage state files, interactive login, Supabase provider
-- **Retina/HiDPI** — `scale` option for 2× resolution recording
-- **Playwright integration** — test fixture and `recordPage()` API for existing test suites
-- **Output formats** — WebM (default), MP4, GIF
-- **Speed control** — global and per-step playback speed
-- **Environment variables** — `${VAR}` substitution in definitions
-- **JSON Schema** — IDE autocomplete via `recording-definition.schema.json`
 
 ## Documentation
 

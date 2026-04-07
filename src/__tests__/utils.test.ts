@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest'
-import { sanitizeFilename, timestamp } from '../utils'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { cleanOutputDir, sanitizeFilename, timestamp } from '../utils'
 
 describe('timestamp', () => {
   it('returns a string matching YYYY-MM-DD_HH-MM-SS-mmm format', () => {
@@ -44,5 +47,40 @@ describe('sanitizeFilename', () => {
     const result = sanitizeFilename('../../../secret')
     expect(result).not.toContain('..')
     expect(result).not.toContain('/')
+  })
+})
+
+describe('cleanOutputDir', () => {
+  let tmpDir: string
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'testreel-clean-'))
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  it('removes testreel output files (.webm, .mp4, .gif, .png, .json)', () => {
+    const files = ['video.webm', 'clip.mp4', 'anim.gif', 'shot.png', 'out.json']
+    for (const f of files) fs.writeFileSync(path.join(tmpDir, f), '')
+
+    cleanOutputDir(tmpDir)
+
+    expect(fs.readdirSync(tmpDir)).toEqual([])
+  })
+
+  it('preserves non-output files', () => {
+    fs.writeFileSync(path.join(tmpDir, 'notes.txt'), 'keep')
+    fs.writeFileSync(path.join(tmpDir, 'recording.webm'), '')
+
+    cleanOutputDir(tmpDir)
+
+    const remaining = fs.readdirSync(tmpDir)
+    expect(remaining).toEqual(['notes.txt'])
+  })
+
+  it('is a no-op for non-existent directories', () => {
+    expect(() => cleanOutputDir('/tmp/does-not-exist-xyz')).not.toThrow()
   })
 })

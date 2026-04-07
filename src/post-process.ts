@@ -1,7 +1,7 @@
-import { execFile } from 'child_process'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { runFFmpeg } from './ffmpeg'
 import type { CursorEvent, CursorStyle } from './types'
 
 /** Shared VP9 encoding flags optimized for speed with screen content. */
@@ -20,42 +20,21 @@ export const VP9_FAST_FLAGS = [
   '0',
 ] as const
 
-/**
- * Resolve the path to the ffmpeg binary.
- * Uses @ffmpeg-installer/ffmpeg if available, falls back to system ffmpeg.
- */
-function getFFmpegPath(): string {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('ffmpeg-static') as string
-  } catch {
-    return 'ffmpeg'
-  }
-}
-
-export function runFFmpeg(
-  args: string[],
-  timeoutMs: number = 5 * 60 * 1000,
-): Promise<void> {
-  const ffmpeg = getFFmpegPath()
-  return new Promise((resolve, reject) => {
-    execFile(
-      ffmpeg,
-      args,
-      { maxBuffer: 50 * 1024 * 1024, timeout: timeoutMs },
-      (err, _stdout, stderr) => {
-        if (err) {
-          reject(new Error(`ffmpeg failed: ${err.message}\n${stderr}`))
-        } else {
-          resolve()
-        }
-      },
-    )
-  })
-}
+export { runFFmpeg } from './ffmpeg'
 
 /** Base size of bundled cursor PNGs (100×100 high-res source). */
 const CURSOR_BASE_SIZE = 100
+
+/**
+ * Cursor hotspot offset as a fraction of cursor size.
+ * (0, 0) = top-left (arrow cursors), (0.5, 0.5) = center (touch cursor).
+ */
+export const CURSOR_HOTSPOT: Record<string, { x: number; y: number }> = {
+  default: { x: 0, y: 0 },
+  pointer: { x: 0.38, y: 0.2 },
+  text: { x: 0.5, y: 0.5 },
+  touch: { x: 0.5, y: 0.5 },
+}
 
 /**
  * Build FFmpeg piecewise-linear expression for cursor position.
@@ -73,17 +52,15 @@ export function buildPositionExpr(
   if (keyframes.length === 1) return String(keyframes[0].value)
 
   // Build nested if/else expression
-  // For each segment: if t < arrival_time, interpolate from prev to current
+  // For each segment: cursor starts moving at event time, arrives at event time + duration
   let expr = String(keyframes[keyframes.length - 1].value)
 
   for (let i = keyframes.length - 1; i >= 1; i--) {
     const prev = keyframes[i - 1]
     const curr = keyframes[i]
     const durSec = curr.transitionMs / 1000
-    const arrivalTime = curr.time // time the move event was logged
-
-    // The cursor starts moving at arrivalTime - durSec and arrives at arrivalTime
-    const moveStart = Math.max(0, arrivalTime - durSec)
+    const moveStart = curr.time // cursor starts moving when event was recorded
+    const arrivalTime = moveStart + durSec // cursor arrives after transition
 
     // During transition: lerp from prev.value to curr.value
     const lerp = `${prev.value}+(${curr.value}-${prev.value})*(t-${moveStart.toFixed(4)})/${durSec.toFixed(4)}`
@@ -96,7 +73,9 @@ export function buildPositionExpr(
 
 /**
  * Build FFmpeg expression for cursor visibility (opacity).
- * Returns '1' when visible, '0' when hidden.
+ * Returns '1' when visible, '0' when hidden. Used as the `enable=` clause
+ * of the overlay filter (binary on/off only — for fade ramps see
+ * `buildAlphaExpr`).
  */
 export function buildVisibilityExpr(events: CursorEvent[]): string {
   const visEvents = events.filter((e) => e.type === 'hide' || e.type === 'show')
@@ -113,6 +92,134 @@ export function buildVisibilityExpr(events: CursorEvent[]): string {
   result = `if(lt(t,${visEvents[0].time.toFixed(4)}),1,${result})`
 
   return result
+}
+
+/**
+ * Build FFmpeg expression for time-varying cursor alpha with linear fade
+ * ramps around hide/show events. Returns a scalar in [0, 1].
+ *
+ * Uses `T` (frame time, seconds) by default — suitable for the `geq` filter
+ * applied to the cursor input plane. Each hide/show event creates a linear
+ * ramp of duration `fadeMs` starting at the event time.
+ *
+ * Returns '1' if there are no hide/show events.
+ */
+export function buildAlphaExpr(
+  events: CursorEvent[],
+  fadeMs: number,
+  timeVar: string = 'T',
+): string {
+  const visEvents = events
+    .filter((e) => e.type === 'hide' || e.type === 'show')
+    .sort((a, b) => a.time - b.time)
+  if (visEvents.length === 0) return '1'
+
+  const f = Math.max(0.001, fadeMs / 1000)
+
+  // Initial state at t = -infinity is visible (1)
+  // Walk events from last to first, building nested if expression
+  const lastEv = visEvents[visEvents.length - 1]
+  let expr = lastEv.type === 'hide' ? '0' : '1'
+
+  for (let i = visEvents.length - 1; i >= 0; i--) {
+    const ev = visEvents[i]
+    const prevState = i === 0 ? 1 : visEvents[i - 1].type === 'hide' ? 0 : 1
+    const newState = ev.type === 'hide' ? 0 : 1
+    const tStart = ev.time
+    const tEnd = ev.time + f
+
+    if (prevState === newState) {
+      // No-op transition (consecutive same type) — just use a hard threshold
+      expr = `if(lt(${timeVar},${tStart.toFixed(4)}),${prevState},${expr})`
+      continue
+    }
+
+    // Linear ramp from prevState to newState across [tStart, tEnd]
+    const delta = newState - prevState
+    const lerp = `${prevState}+(${delta})*(${timeVar}-${tStart.toFixed(4)})/${f.toFixed(4)}`
+    expr = `if(lt(${timeVar},${tStart.toFixed(4)}),${prevState},if(lt(${timeVar},${tEnd.toFixed(4)}),${lerp},${expr}))`
+  }
+
+  return expr
+}
+
+/**
+ * Inject synthetic `hide`/`show` events into a cursor event stream when the
+ * cursor has been idle (no `move` or `ripple` activity) for at least
+ * `idleHideMs`. Each idle gap produces a hide at the start and a show offset
+ * by `fadeMs` before the next activity, so the cursor is fully faded back in
+ * by the moment of the next interaction.
+ *
+ * If the events stream already contains explicit `hide`/`show` events, the
+ * input is returned unchanged — explicit user control wins over auto-hide.
+ */
+export function computeIdleHideEvents(
+  events: CursorEvent[],
+  videoDurationSec: number,
+  idleHideMs: number,
+  fadeMs: number,
+): CursorEvent[] {
+  if (events.some((e) => e.type === 'hide' || e.type === 'show')) return events
+
+  const idleSec = idleHideMs / 1000
+  const fadeSec = fadeMs / 1000
+
+  const activity = events
+    .filter((e) => (e.type === 'move' && !e.silent) || e.type === 'ripple')
+    .sort((a, b) => a.time - b.time)
+
+  const synth: CursorEvent[] = []
+
+  if (activity.length === 0) {
+    // No cursor activity at all — hide from the start
+    synth.push({ time: -fadeSec, type: 'hide', x: 0, y: 0 })
+    return [...events, ...synth].sort((a, b) => a.time - b.time)
+  }
+
+  // Leading gap: always hide at the start and fade the cursor in just before
+  // the first activity. The cursor should not appear until it's about to do
+  // something useful.
+  if (activity[0].time > fadeSec) {
+    synth.push({
+      time: -fadeSec,
+      type: 'hide',
+      x: activity[0].x,
+      y: activity[0].y,
+    })
+    synth.push({
+      time: activity[0].time - fadeSec,
+      type: 'show',
+      x: activity[0].x,
+      y: activity[0].y,
+    })
+  }
+
+  // Gaps between consecutive activity events
+  for (let i = 0; i < activity.length - 1; i++) {
+    const gap = activity[i + 1].time - activity[i].time
+    if (gap >= idleSec) {
+      synth.push({
+        time: activity[i].time,
+        type: 'hide',
+        x: activity[i].x,
+        y: activity[i].y,
+      })
+      synth.push({
+        time: Math.max(activity[i].time, activity[i + 1].time - fadeSec),
+        type: 'show',
+        x: activity[i + 1].x,
+        y: activity[i + 1].y,
+      })
+    }
+  }
+
+  // Trailing gap: from last activity to end of video
+  const last = activity[activity.length - 1]
+  if (videoDurationSec - last.time >= idleSec) {
+    synth.push({ time: last.time, type: 'hide', x: last.x, y: last.y })
+  }
+
+  return [...events, ...synth].sort((a, b) => a.time - b.time)
 }
 
 /**
@@ -192,7 +299,9 @@ export function buildZoomSegments(
   events: CursorEvent[],
   baseCursorSize: number,
 ): ZoomSegment[] {
-  const zoomEvents = events.filter((e) => e.type === 'zoom' && e.zoomScale !== undefined)
+  const zoomEvents = events.filter(
+    (e) => e.type === 'zoom' && e.zoomScale !== undefined,
+  )
 
   // No zoom events — single segment at base size
   if (zoomEvents.length === 0) {
@@ -200,7 +309,10 @@ export function buildZoomSegments(
   }
 
   // Build time ranges with interpolated intermediate steps during transitions
-  interface TimeRange { start: number; end: number }
+  interface TimeRange {
+    start: number
+    end: number
+  }
   const sizeRanges = new Map<number, TimeRange[]>()
 
   const addRange = (size: number, start: number, end: number) => {
@@ -241,14 +353,148 @@ export function buildZoomSegments(
   // Build enable expressions per cursor size
   const segments: ZoomSegment[] = []
   for (const [cursorSize, ranges] of sizeRanges) {
-    const parts = ranges.map((r) =>
-      `between(t\\,${r.start.toFixed(4)}\\,${r.end.toFixed(4)})`,
+    const parts = ranges.map(
+      (r) => `between(t\\,${r.start.toFixed(4)}\\,${r.end.toFixed(4)})`,
     )
     const enableExpr = parts.length === 1 ? parts[0] : parts.join('+')
     segments.push({ cursorSize, enableExpr })
   }
 
   return segments
+}
+
+// ---------------------------------------------------------------------------
+// Full-frame zoom filter (scale + crop on composited frame)
+// ---------------------------------------------------------------------------
+
+export interface ZoomFilterInput {
+  events: CursorEvent[]
+  /** Composited frame dimensions (after window/background compositing) */
+  frameWidth: number
+  frameHeight: number
+  /** Offset of the page video within the composited frame */
+  pageOffsetX: number
+  pageOffsetY: number
+  /** Page viewport dimensions */
+  pageWidth: number
+  pageHeight: number
+}
+
+/**
+ * Build a time-varying FFmpeg scale+crop filter that zooms the entire
+ * composited frame (page + window chrome + background) based on zoom events.
+ *
+ * Uses scale with eval=frame to dynamically resize the frame per-frame,
+ * then crop with fixed output dimensions and per-frame x/y to select
+ * the visible region. FFmpeg's crop filter only evaluates w/h once at
+ * init, so time-varying dimensions are not possible — the scale filter
+ * handles the zoom factor instead.
+ *
+ * Returns null when no zoom events carry translation data (zoomTx/zoomTy),
+ * meaning FFmpeg zoom is not needed.
+ */
+export function buildZoomFilter(
+  input: ZoomFilterInput,
+  inputLabel: string,
+  outputLabel: string,
+): { filter: string; outputLabel: string } | null {
+  const {
+    events,
+    frameWidth: fw,
+    frameHeight: fh,
+    pageOffsetX,
+    pageOffsetY,
+    pageWidth: pw,
+    pageHeight: ph,
+  } = input
+
+  const zoomEvents = events.filter(
+    (e) =>
+      e.type === 'zoom' &&
+      e.zoomScale !== undefined &&
+      e.zoomTx !== undefined &&
+      e.zoomTy !== undefined,
+  )
+
+  if (zoomEvents.length === 0) return null
+
+  // Build keyframes for zoom factor and pan position.
+  // Each zoom event defines a target state; we interpolate over zoomDurationMs.
+  interface ZoomKeyframe {
+    time: number // arrival time (end of transition)
+    transitionMs: number
+    zoom: number // scale factor (1 = no zoom, 2 = 2x zoom)
+    panX: number // crop x position in the scaled-up frame
+    panY: number // crop y position in the scaled-up frame
+  }
+
+  const keyframes: ZoomKeyframe[] = []
+  for (const ev of zoomEvents) {
+    const scale = ev.zoomScale!
+    const tx = ev.zoomTx!
+    const ty = ev.zoomTy!
+    const durationMs = ev.zoomDurationMs ?? 600
+
+    // Compute zoom center in composited frame coordinates
+    const cfCenterX = pageOffsetX + (-tx + pw / (2 * scale))
+    const cfCenterY = pageOffsetY + (-ty + ph / (2 * scale))
+
+    // Pan position: center the crop on the zoom target in the scaled frame.
+    // After scaling by z, the target is at (cfCenterX * z, cfCenterY * z).
+    // Crop origin = target - halfOutput, clamped to valid range.
+    const panX = Math.round(
+      Math.max(0, Math.min(fw * scale - fw, cfCenterX * scale - fw / 2)),
+    )
+    const panY = Math.round(
+      Math.max(0, Math.min(fh * scale - fh, cfCenterY * scale - fh / 2)),
+    )
+
+    keyframes.push({
+      time: ev.time + durationMs / 1000,
+      transitionMs: durationMs,
+      zoom: scale,
+      panX,
+      panY,
+    })
+  }
+
+  // Build piecewise linear expression (same approach as buildPositionExpr)
+  function buildExpr(
+    kfs: ZoomKeyframe[],
+    field: 'zoom' | 'panX' | 'panY',
+    defaultVal: number,
+  ): string {
+    if (kfs.length === 0) return String(defaultVal)
+
+    let expr = String(kfs[kfs.length - 1][field])
+
+    for (let i = kfs.length - 1; i >= 0; i--) {
+      const curr = kfs[i]
+      const prev = i > 0 ? kfs[i - 1] : null
+      const prevVal = prev ? prev[field] : defaultVal
+      const durSec = curr.transitionMs / 1000
+      const arrivalTime = curr.time
+      const moveStart = Math.max(0, arrivalTime - durSec)
+
+      const lerp = `${prevVal}+(${curr[field]}-${prevVal})*(t-${moveStart.toFixed(4)})/${durSec.toFixed(4)}`
+      expr = `if(lt(t,${moveStart.toFixed(4)}),${prevVal},if(lt(t,${arrivalTime.toFixed(4)}),${lerp},${expr}))`
+    }
+
+    return expr
+  }
+
+  const zoomExpr = buildExpr(keyframes, 'zoom', 1)
+  const panXExpr = buildExpr(keyframes, 'panX', 0)
+  const panYExpr = buildExpr(keyframes, 'panY', 0)
+
+  // Scale up by zoom factor (eval=frame for per-frame dimensions),
+  // then crop to original frame size with per-frame pan position.
+  // trunc(val/2)*2 ensures even dimensions required by most codecs.
+  const filter =
+    `[${inputLabel}]scale=w='trunc(iw*(${zoomExpr})/2)*2':h='trunc(ih*(${zoomExpr})/2)*2':eval=frame:flags=lanczos` +
+    `,crop=w=${fw}:h=${fh}:x='${panXExpr}':y='${panYExpr}'[${outputLabel}]`
+
+  return { filter, outputLabel }
 }
 
 export interface RippleConfig {
@@ -267,6 +513,9 @@ export interface FilterGraphInput {
   xExpr: string
   yExpr: string
   visExpr: string
+  /** Time-varying alpha (0..1) applied per-pixel via `geq` for fade in/out.
+   *  Pass '1' (default) to skip the alpha pass entirely. */
+  alphaExpr?: string
   rippleEvents: Array<{
     x: number
     y: number
@@ -311,6 +560,7 @@ export function buildFilterGraph(
     xExpr,
     yExpr,
     visExpr,
+    alphaExpr = '1',
     rippleEvents,
     rippleConfig,
     videoLabel = '0:v',
@@ -322,16 +572,30 @@ export function buildFilterGraph(
   let currentInput = videoLabel
   const extraInputArgs: string[] = []
 
+  // Helper: wrap a cursor label with a per-pixel alpha multiplier (geq) for
+  // fade in/out. Returns a new unique label, or the input label unchanged
+  // when no fade is active.
+  const applyAlpha = (cursorLabel: string, uniqueLabel: string): string => {
+    if (alphaExpr === '1') return cursorLabel
+    // The cursor input is a single still PNG frame, so geq's T variable
+    // would be stuck at 0. Loop the frame and assign per-frame timestamps so
+    // the alpha expression evaluates against the output video time.
+    filters.push(
+      `[${cursorLabel}]loop=loop=-1:size=1:start=0,fps=30,format=gbrap,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='clip(${alphaExpr}\\,0\\,1)*alpha(X,Y)'[${uniqueLabel}]`,
+    )
+    return uniqueLabel
+  }
+
   // Determine effective zoom segments (default: single segment at base cursor size)
-  const effectiveZoom = zoomSegments && zoomSegments.length > 1
-    ? zoomSegments
-    : undefined
+  const effectiveZoom =
+    zoomSegments && zoomSegments.length > 1 ? zoomSegments : undefined
 
   if (multiCursor && multiCursor.inputs.length > 0) {
     if (effectiveZoom) {
       // Multi-cursor × multi-zoom: one overlay per (style × zoom) pair
       for (const { style, inputIdx } of multiCursor.inputs) {
         const styleExpr = multiCursor.styleExprs[style] ?? '0'
+        const hotspot = CURSOR_HOTSPOT[style] ?? { x: 0, y: 0 }
 
         for (let z = 0; z < effectiveZoom.length; z++) {
           const zoom = effectiveZoom[z]
@@ -346,13 +610,20 @@ export function buildFilterGraph(
             )
             cursorLabel = scaledLabel
           }
+          cursorLabel = applyAlpha(cursorLabel, `${label}_a`)
+
+          // Apply hotspot offset so the cursor's logical point aligns with (x, y)
+          const xOff = Math.round(hotspot.x * zoom.cursorSize)
+          const yOff = Math.round(hotspot.y * zoom.cursorSize)
+          const adjX = xOff === 0 ? xExpr : `(${xExpr})-${xOff}`
+          const adjY = yOff === 0 ? yExpr : `(${yExpr})-${yOff}`
 
           // Enable = visibility × style × zoom
           const enableExpr = `(${visExpr})*(${styleExpr})*(${zoom.enableExpr})`
           const outLabel = `${label}_out`
 
           filters.push(
-            `[${currentInput}][${cursorLabel}]overlay=x='${xExpr}':y='${yExpr}':enable='${enableExpr}':format=auto[${outLabel}]`,
+            `[${currentInput}][${cursorLabel}]overlay=x='${adjX}':y='${adjY}':enable='${enableExpr}':format=auto[${outLabel}]`,
           )
           currentInput = outLabel
         }
@@ -362,6 +633,7 @@ export function buildFilterGraph(
       for (let i = 0; i < multiCursor.inputs.length; i++) {
         const { style, inputIdx } = multiCursor.inputs[i]
         const styleExpr = multiCursor.styleExprs[style] ?? '0'
+        const hotspot = CURSOR_HOTSPOT[style] ?? { x: 0, y: 0 }
 
         let cursorLabel = `${inputIdx}:v`
         if (cursorSize !== CURSOR_BASE_SIZE) {
@@ -371,12 +643,19 @@ export function buildFilterGraph(
           )
           cursorLabel = scaledLabel
         }
+        cursorLabel = applyAlpha(cursorLabel, `cursor_${style}_a`)
+
+        // Apply hotspot offset so the cursor's logical point aligns with (x, y)
+        const xOff = Math.round(hotspot.x * cursorSize)
+        const yOff = Math.round(hotspot.y * cursorSize)
+        const adjX = xOff === 0 ? xExpr : `(${xExpr})-${xOff}`
+        const adjY = yOff === 0 ? yExpr : `(${yExpr})-${yOff}`
 
         const enableExpr = `(${visExpr})*(${styleExpr})`
         const outLabel = `cursor_${style}_out`
 
         filters.push(
-          `[${currentInput}][${cursorLabel}]overlay=x='${xExpr}':y='${yExpr}':enable='${enableExpr}':format=auto[${outLabel}]`,
+          `[${currentInput}][${cursorLabel}]overlay=x='${adjX}':y='${adjY}':enable='${enableExpr}':format=auto[${outLabel}]`,
         )
         currentInput = outLabel
       }
@@ -390,6 +669,7 @@ export function buildFilterGraph(
       )
       cursorLabel = 'cursor_scaled'
     }
+    cursorLabel = applyAlpha(cursorLabel, 'cursor_a')
 
     filters.push(
       `[${currentInput}][${cursorLabel}]overlay=x='${xExpr}':y='${yExpr}':enable='${visExpr}':format=auto[cursor_out]`,
@@ -398,32 +678,41 @@ export function buildFilterGraph(
   }
 
   // Add ripple overlays via inline lavfi source (no extra inputs needed)
-  if (rippleEvents.length > 0 && rippleConfig) {
+  if (rippleEvents.length > 0 && rippleConfig && rippleConfig.size > 0) {
     const { size, r, g, b, baseAlpha, durationMs } = rippleConfig
     const fps = 30
     const frames = Math.ceil((durationMs / 1000) * fps)
     const dim = size * 2
     const alphaVal = Math.round(255 * baseAlpha)
 
-    // Generate ripple animation as a lavfi source
+    // Generate ripple animation as a lavfi source.
+    // Draws an expanding ring that fades over time.
+    const ringWidth = Math.max(4, Math.round(size * 0.15))
     const geq =
       `geq=` +
-      `r='if(lte(hypot(X-${size},Y-${size}),${size}*(N+1)/${frames})*gt(hypot(X-${size},Y-${size}),(${size}*(N+1)/${frames})-3),${r},0)'` +
-      `:g='if(lte(hypot(X-${size},Y-${size}),${size}*(N+1)/${frames})*gt(hypot(X-${size},Y-${size}),(${size}*(N+1)/${frames})-3),${g},0)'` +
-      `:b='if(lte(hypot(X-${size},Y-${size}),${size}*(N+1)/${frames})*gt(hypot(X-${size},Y-${size}),(${size}*(N+1)/${frames})-3),${b},0)'` +
-      `:a='if(lte(hypot(X-${size},Y-${size}),${size}*(N+1)/${frames})*gt(hypot(X-${size},Y-${size}),(${size}*(N+1)/${frames})-3),${alphaVal}*(1-N/${frames}),0)'`
+      `r='if(lte(hypot(X-${size},Y-${size}),${size}*(N+1)/${frames})*gt(hypot(X-${size},Y-${size}),(${size}*(N+1)/${frames})-${ringWidth}),${r},0)'` +
+      `:g='if(lte(hypot(X-${size},Y-${size}),${size}*(N+1)/${frames})*gt(hypot(X-${size},Y-${size}),(${size}*(N+1)/${frames})-${ringWidth}),${g},0)'` +
+      `:b='if(lte(hypot(X-${size},Y-${size}),${size}*(N+1)/${frames})*gt(hypot(X-${size},Y-${size}),(${size}*(N+1)/${frames})-${ringWidth}),${b},0)'` +
+      `:a='if(lte(hypot(X-${size},Y-${size}),${size}*(N+1)/${frames})*gt(hypot(X-${size},Y-${size}),(${size}*(N+1)/${frames})-${ringWidth}),${alphaVal}*(1-N/${frames}),0)'`
 
     const rippleSrc = `color=c=black@0:s=${dim}x${dim}:d=${(durationMs / 1000).toFixed(2)}:r=${fps},format=rgba,${geq}[ripple_src]`
     filters.push(rippleSrc)
 
-    // Split the ripple source for each event
+    // Split the ripple source for each event and shift PTS to match event time.
+    // The ripple source is short (e.g. 0.5s). Without PTS shifting, the source
+    // reaches EOF before the overlay enable window opens, making it invisible.
     if (rippleEvents.length === 1) {
-      // No split needed for a single ripple
-      const splitLabels = '[rip0]'
+      const splitLabels = '[rip0_raw]'
       filters.push(`[ripple_src]copy${splitLabels}`)
     } else {
-      const splitLabels = rippleEvents.map((_, i) => `[rip${i}]`).join('')
+      const splitLabels = rippleEvents.map((_, i) => `[rip${i}_raw]`).join('')
       filters.push(`[ripple_src]split=${rippleEvents.length}${splitLabels}`)
+    }
+
+    // Shift each copy's PTS to align with its event time
+    for (let i = 0; i < rippleEvents.length; i++) {
+      const startPts = rippleEvents[i].time.toFixed(4)
+      filters.push(`[rip${i}_raw]setpts=PTS+${startPts}/TB[rip${i}]`)
     }
 
     // Overlay each ripple at its position and time

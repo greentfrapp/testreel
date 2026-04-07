@@ -16,6 +16,12 @@ Install testreel alongside your existing Playwright setup:
 npm install testreel
 ```
 
+The `testreel/playwright` entry point exports:
+
+- **`testreelFixtures`** (lowercase) — the fixtures object to spread into `test.extend()`
+- **`TestreelFixtures`** (PascalCase) — the TypeScript type for the generic parameter
+- **`test`** — a pre-composed test function with testreel fixtures already applied (simpler alternative if you don't need custom fixtures)
+
 ### Basic usage
 
 Compose testreel's fixtures into your test and swap `test` for `recorded` on any test you want to capture:
@@ -47,6 +53,51 @@ recorded('product demo', async ({ page }) => {
 
 The `page` fixture creates a recording-enabled browser context that preserves your project's Playwright config (storageState, locale, extraHTTPHeaders, etc.). On teardown it finalizes the video and attaches it to the test report.
 
+Recordings are captured regardless of test outcome — if a test fails, the partial video is still attached to the report for debugging.
+
+### Composing with custom fixtures
+
+Most real projects already have custom fixtures (auth, database, feature flags, etc.). Spread `testreelFixtures` alongside your own:
+
+```ts
+import { test as base, expect } from '@playwright/test'
+import { testreelFixtures, type TestreelFixtures } from 'testreel/playwright'
+
+type AuthFixtures = {
+  authedPage: Page
+}
+
+// Combine testreel fixtures with your own
+const test = base.extend<TestreelFixtures & AuthFixtures>({
+  ...testreelFixtures,
+
+  authedPage: async ({ page, storageState }, use) => {
+    // Your auth setup — `page` is already testreel's recording-enabled page
+    await page.goto('/login')
+    await page.fill('#email', 'test@example.com')
+    await page.click('button[type=submit]')
+    await use(page)
+  },
+})
+
+const recorded = test
+
+recorded('dashboard walkthrough', async ({ authedPage, testreelPage }) => {
+  // authedPage is the recording-enabled page with your auth applied
+  await testreelPage.click('.nav-dashboard')
+  await testreelPage.screenshot('dashboard')
+
+  // For standard Playwright assertions, use testreelPage.page
+  await expect(testreelPage.page).toHaveURL('/dashboard')
+})
+```
+
+**How `page`, `testreelPage`, and custom fixtures interact:**
+
+- **`page`** — testreel overrides Playwright's default `page` to enable video recording. Any fixture that depends on `page` (like `authedPage` above) automatically gets the recording-enabled page.
+- **`testreelPage`** — wraps `page` with the `PageRecorder` API for visual effects (animated cursor, zoom, smooth scroll). Access the underlying Playwright `Page` via `testreelPage.page` for assertions like `expect(page).toHaveURL(...)`.
+- **Custom fixtures** — work exactly as before. Because they receive testreel's `page`, their actions are included in the recording.
+
 ### Advanced: PageRecorder
 
 For polished demo recordings with animated cursor, zoom effects, and smooth scrolling, use the `testreelPage` fixture instead:
@@ -66,7 +117,7 @@ The `testreelPage` object provides these methods:
 
 | Method | Description |
 |--------|-------------|
-| `click(selector, options?)` | Click an element with animated cursor. Options: `{ timeout }` |
+| `click(selector, options?)` | Click an element with animated cursor. Options: `{ timeout, zoom, zoomOut }` |
 | `type(selector, text, options?)` | Type text with animated cursor. Options: `{ delay, clear, timeout }` |
 | `fill(selector, text, options?)` | Set an input's value directly. Options: `{ timeout }` |
 | `hover(selector, options?)` | Hover with animated cursor. Options: `{ timeout }` |
@@ -92,14 +143,13 @@ export default defineConfig({
   use: {
     testreelOptions: {
       viewport: { width: 1280, height: 720 },
-      scale: 2,
       chrome: { url: true },
       background: {
         gradient: { from: '#667eea', to: '#764ba2' },
         padding: 60,
         borderRadius: 12,
       },
-      cursor: { style: 'pointer' },
+      cursor: { style: 'pointer' }, // or 'touch' for mobile UI recordings
       outputFormat: 'webm',
     },
   },
@@ -111,7 +161,6 @@ Or override per-test:
 ```js
 recorded.use({
   testreelOptions: {
-    scale: 1,
     chrome: false,
     background: false,
   },
@@ -122,9 +171,20 @@ recorded('lightweight recording', async ({ page }) => {
 })
 ```
 
-### Test failures
+### Performance
 
-If a test fails, the fixture still finalizes whatever video has been captured. The partial recording is attached to the test report, which is useful for debugging.
+Recording adds overhead in two areas:
+
+- **During the test** — an extra browser context with video capture enabled. This is lightweight but not free.
+- **After the test** — FFmpeg post-processing runs on teardown to overlay the cursor, add window chrome, apply background styling, and adjust playback speed. Processing time scales with video length and the number of enabled effects.
+
+For most projects, record selectively — key user flows or demo-worthy tests — rather than the entire suite. You can disable expensive effects per-test with `testreelOptions`:
+
+```js
+recorded.use({
+  testreelOptions: { cursor: false, chrome: false, background: false },
+})
+```
 
 ## recordPage API
 
@@ -137,10 +197,9 @@ import { recordPage } from 'testreel'
 const browser = await chromium.launch()
 const context = await browser.newContext({
   viewport: { width: 1280, height: 720 },
-  deviceScaleFactor: 2,
   recordVideo: {
     dir: './output',
-    size: { width: 2560, height: 1440 }, // viewport × scale
+    size: { width: 1280, height: 720 },
   },
 })
 const page = await context.newPage()
@@ -148,7 +207,6 @@ await page.goto('https://myapp.com')
 
 const recorder = await recordPage(page, {
   outputDir: './output',
-  scale: 2,
   chrome: { url: 'https://myapp.com' },
   background: { color: '#6366f1', padding: 60 },
 })
@@ -180,7 +238,6 @@ Calling `stop()` twice throws an error.
 | `background` | `boolean \| BackgroundOptions` | `false` | Background padding and styling |
 | `speed` | `number` | `1.0` | Playback speed multiplier |
 | `outputFormat` | `'webm' \| 'mp4' \| 'gif'` | `'webm'` | Video output format |
-| `scale` | `number` | `1` | Device scale factor (must match context's `deviceScaleFactor`) |
 | `keepIntermediates` | `boolean` | `false` | Keep cursor JSON and intermediate files |
 
 See [Recording Definitions](recording-definitions.md) for details on cursor, chrome, and background options.

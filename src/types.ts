@@ -42,6 +42,9 @@ export interface WaitStep extends BaseStep {
 export interface ClickStep extends BaseStep {
   action: 'click'
   selector: string
+  /** Zoom into the click target at this scale, then zoom back out after the click.
+   *  Example: `zoom: 2` zooms to 2x, clicks, waits pauseAfter, then zooms out. */
+  zoom?: number
 }
 
 export interface TypeStep extends BaseStep {
@@ -113,6 +116,14 @@ export interface WaitForNetworkStep extends BaseStep {
   urlPattern: string
 }
 
+export interface HideCursorStep extends BaseStep {
+  action: 'hideCursor'
+}
+
+export interface ShowCursorStep extends BaseStep {
+  action: 'showCursor'
+}
+
 export type Step =
   | WaitStep
   | ClickStep
@@ -127,6 +138,8 @@ export type Step =
   | ScreenshotStep
   | ZoomStep
   | WaitForNetworkStep
+  | HideCursorStep
+  | ShowCursorStep
 
 export type ActionName = Step['action']
 
@@ -135,7 +148,7 @@ export interface SetupBlock {
   steps: Step[]
 }
 
-export type CursorStyle = 'default' | 'pointer' | 'text'
+export type CursorStyle = 'default' | 'pointer' | 'text' | 'touch'
 
 export interface CursorOptions {
   enabled?: boolean
@@ -146,6 +159,13 @@ export interface CursorOptions {
   rippleColor?: string
   rippleSize?: number
   transitionMs?: number
+  /** Automatically fade out the cursor after a period of inactivity. Default: true.
+   *  Disabled when the recording contains explicit hideCursor/showCursor steps. */
+  idleHide?: boolean
+  /** Idle threshold in ms before auto-hiding the cursor. Default: 3000. */
+  idleHideMs?: number
+  /** Fade in/out duration in ms used by hide/show transitions. Default: 400. */
+  fadeMs?: number
 }
 
 export interface WindowChromeOptions {
@@ -162,9 +182,9 @@ export interface WindowChromeOptions {
 
 export interface BackgroundOptions {
   enabled?: boolean
-  /** Solid background color as hex string. Default: '#6366f1'. */
+  /** Solid background color as hex string. If neither color nor gradient is set, defaults to a gradient from '#6366f1' to '#a855f7'. */
   color?: string
-  /** Two-color diagonal gradient (overrides color). */
+  /** Two-color diagonal gradient. If neither color nor gradient is set, defaults to { from: '#6366f1', to: '#a855f7' }. */
   gradient?: { from: string; to: string }
   /** Padding around the window in pixels. Default: 60. */
   padding?: number
@@ -175,8 +195,10 @@ export interface BackgroundOptions {
 export interface RecordingDefinition {
   url: string
   viewport?: Viewport
-  /** Device scale factor (1 = standard, 2 = Retina/HiDPI). Default: 1. */
-  scale?: number
+  /** Desired final video dimensions. When set, the browser viewport is computed
+   *  by subtracting chrome title bar height and background padding so the output
+   *  video matches this size exactly. Takes precedence over `viewport`. */
+  outputSize?: Viewport
   colorScheme?: 'light' | 'dark'
   waitForSelector?: string
   storageState?: string
@@ -200,9 +222,9 @@ export interface RecordOptions {
   headless?: boolean
   setup?: SetupBlock
   speed?: number
-  /** Device scale factor override (1 = standard, 2 = Retina/HiDPI). */
-  scale?: number
   outputFormat?: OutputFormat
+  /** Remove previous testreel output files from outputDir before recording. Default: false. */
+  clean?: boolean
   /** Keep intermediate files (cursor JSON, etc.) instead of cleaning up. */
   keepIntermediates?: boolean
 }
@@ -247,22 +269,34 @@ export interface CursorEvent {
   rippleSize?: number // for 'ripple' events
   rippleColor?: string // for 'ripple' events
   cursorStyle?: CursorStyle // for 'move' events — auto-detected from target element
+  /** Move events emitted by non-interactive actions (type/fill/clear/select)
+   *  that should not count as cursor activity for idle auto-hide purposes. */
+  silent?: boolean // for 'move' events
   zoomScale?: number // for 'zoom' events — page zoom level
   zoomDurationMs?: number // for 'zoom' events — transition duration
+  zoomTx?: number // for 'zoom' events — clamped X translation
+  zoomTy?: number // for 'zoom' events — clamped Y translation
 }
 
 export interface CursorTracker {
+  computeTransitionMs(
+    targetX: number,
+    targetY: number,
+    explicitMs?: number,
+  ): number
   moveCursorTo(
     page: import('playwright-core').Page,
-    selector: string,
+    selector: string | import('playwright-core').Locator,
     zoomState: ZoomState,
     options?: CursorOptions,
+    silent?: boolean,
   ): Promise<void>
   moveCursorToPoint(
     page: import('playwright-core').Page,
     x: number,
     y: number,
     options?: CursorOptions,
+    silent?: boolean,
   ): Promise<void>
   triggerRipple(
     page: import('playwright-core').Page,
@@ -270,7 +304,7 @@ export interface CursorTracker {
   ): Promise<void>
   hideCursor(page: import('playwright-core').Page): Promise<void>
   showCursor(page: import('playwright-core').Page): Promise<void>
-  setZoom(scale: number, durationMs: number): void
+  setZoom(scale: number, durationMs: number, tx?: number, ty?: number): void
   getEvents(): CursorEvent[]
 }
 
@@ -280,6 +314,5 @@ export interface ActionContext {
   cursorEnabled: boolean
   cursorOptions?: CursorOptions
   cursorTracker?: CursorTracker
-  /** Device scale factor. Default: 1. */
-  scale: number
+  useFFmpegZoom?: boolean
 }

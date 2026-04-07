@@ -1,6 +1,8 @@
 # Actions Reference
 
-Every step in a recording definition has an `action` field that determines what happens. This page documents all 13 actions.
+Every step in a recording definition has an `action` field that determines what happens. This page documents all 15 actions.
+
+> **Selector support:** All `selector` fields accept any [Playwright selector](https://playwright.dev/docs/selectors) — CSS, text, role, XPath, and more. For example: `"button.submit"`, `"text=Sign in"`, `"role=button[name='Submit']"`, or `"//button[@type='submit']"`.
 
 ## Common step properties
 
@@ -11,7 +13,7 @@ These optional fields are available on every action:
 | `pauseAfter` | `number` | `500` | Milliseconds to wait after the action completes. Not applied to `wait` steps. |
 | `speed` | `number` | — | Per-step speed multiplier (overrides the global `speed`). Must be > 0. |
 | `timeout` | `number` | `5000` | Timeout in ms for selector resolution. |
-| `waitFor` | `string` | — | CSS selector or `"networkidle"` to wait for before the action executes. |
+| `waitFor` | `string` | — | Selector or `"networkidle"` to wait for before the action executes. Accepts any Playwright selector. |
 
 ## wait
 
@@ -31,7 +33,8 @@ Click an element.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `selector` | `string` | yes | CSS selector for the target element. |
+| `selector` | `string` | yes | Selector for the target element. |
+| `zoom` | `number` | — | Zoom into the element at this scale before clicking. Automatically zooms back out after. |
 
 ```json
 { "action": "click", "selector": "button.submit" }
@@ -39,13 +42,29 @@ Click an element.
 
 When cursor is enabled, the cursor animates to the element and a ripple effect plays on click.
 
+### Click with zoom
+
+Add `zoom` to zoom into the click target, then automatically zoom back out after the click:
+
+```json
+{ "action": "click", "selector": ".todo .toggle", "zoom": 2 }
+```
+
+When consecutive click steps both have `zoom`, the intermediate zoom-out is skipped and the camera pans directly between targets:
+
+```json
+{ "action": "click", "selector": ".item-1", "zoom": 2 },
+{ "action": "click", "selector": ".item-2", "zoom": 2 },
+{ "action": "click", "selector": ".item-3", "zoom": 2 }
+```
+
 ## type
 
 Type text into an element character-by-character, producing realistic keystrokes.
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `selector` | `string` | yes | — | CSS selector for the input element. |
+| `selector` | `string` | yes | — | Selector for the input element. |
 | `text` | `string` | yes | — | Text to type. |
 | `delay` | `number` | no | `80` | Delay between keystrokes in ms. |
 | `clear` | `boolean` | no | `false` | Select all and replace existing content before typing. |
@@ -60,7 +79,7 @@ Set an input's value instantly (no keystroke animation).
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `selector` | `string` | yes | CSS selector for the input element. |
+| `selector` | `string` | yes | Selector for the input element. |
 | `text` | `string` | yes | Value to set. |
 
 ```json
@@ -75,7 +94,7 @@ Clear an input field by selecting all content and pressing Backspace.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `selector` | `string` | yes | CSS selector for the input element. |
+| `selector` | `string` | yes | Selector for the input element. |
 
 ```json
 { "action": "clear", "selector": "#search" }
@@ -87,7 +106,7 @@ Select an option from a `<select>` dropdown.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `selector` | `string` | yes | CSS selector for the `<select>` element. |
+| `selector` | `string` | yes | Selector for the `<select>` element. |
 | `value` | `string` | yes | The option value to select. |
 
 ```json
@@ -115,7 +134,7 @@ Move the cursor over an element.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `selector` | `string` | yes | CSS selector for the target element. |
+| `selector` | `string` | yes | Selector for the target element. |
 
 ```json
 { "action": "hover", "selector": ".tooltip-trigger" }
@@ -172,7 +191,7 @@ Zoom into a region of the page using a CSS transform animation.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `selector` | `string` | — | CSS selector to zoom into (centers on the element). |
+| `selector` | `string` | — | Selector to zoom into (centers on the element). |
 | `scale` | `number` | `2` | Zoom scale factor. Use `1` to reset zoom. |
 | `x` | `number` | `640` | X coordinate to zoom into (used when no `selector`). |
 | `y` | `number` | `360` | Y coordinate to zoom into (used when no `selector`). |
@@ -203,3 +222,21 @@ Wait for a specific network response before continuing.
 ```
 
 Useful for waiting on API calls to complete before taking a screenshot or interacting with dynamically loaded content.
+
+## hideCursor
+
+Fade out the cursor overlay. Takes no fields. Useful for hiding the cursor during a long pause, demo voiceover, or while showing a result the cursor would distract from. The fade duration is controlled by the cursor `fadeMs` option (default `200`).
+
+```json
+{ "action": "hideCursor" }
+```
+
+## showCursor
+
+Fade the cursor overlay back in after a `hideCursor` step. Takes no fields.
+
+```json
+{ "action": "showCursor" }
+```
+
+> **Auto-hide:** by default the cursor automatically fades out after 3 seconds of no movement or click activity (configurable via the `idleHide`, `idleHideMs`, and `fadeMs` cursor options). Adding any explicit `hideCursor`/`showCursor` step in a recording disables auto-hide for that recording — explicit control wins.

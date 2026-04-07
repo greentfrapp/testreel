@@ -1,4 +1,4 @@
-import type { Page } from 'playwright-core'
+import type { Locator, Page } from 'playwright-core'
 import type {
   CursorEvent,
   CursorOptions,
@@ -6,9 +6,10 @@ import type {
   CursorTracker,
   ZoomState,
 } from './types'
+
+type SelectorOrLocator = string | Locator
 // suspendZoom/restoreZoom no longer needed in cursor tracking —
 // coordinates are computed mathematically from the zoom transform
-
 
 /**
  * Encapsulated cursor tracker. Each `record()` call creates its own instance,
@@ -18,15 +19,33 @@ export class CursorTrackerImpl implements CursorTracker {
   private events: CursorEvent[] = []
   private startTime = 0
   private cursorPos = { x: 0, y: 0 }
-  private scale: number
-
-  constructor(scale: number = 1) {
-    this.startTime = Date.now()
-    this.scale = scale
+  private hasMoved = false
+  constructor(startTime?: number) {
+    this.startTime = startTime ?? Date.now()
   }
 
   private elapsed(): number {
     return (Date.now() - this.startTime) / 1000
+  }
+
+  /** Compute cursor transition duration from distance at a constant speed. */
+  computeTransitionMs(
+    targetX: number,
+    targetY: number,
+    explicitMs?: number,
+  ): number {
+    if (explicitMs !== undefined) return explicitMs
+    // First move is instant — cursor starts at (0,0) with no visual continuity
+    if (!this.hasMoved) {
+      this.hasMoved = true
+      return 0
+    }
+    const dx = targetX - this.cursorPos.x
+    const dy = targetY - this.cursorPos.y
+    const distance = Math.sqrt(dx * dx + dy * dy)
+    // Default speed: 500 px/s, clamped to 100–600ms
+    const ms = (distance / 500) * 1000
+    return Math.max(100, Math.min(600, ms))
   }
 
   /**
@@ -35,77 +54,88 @@ export class CursorTrackerImpl implements CursorTracker {
    */
   async moveCursorTo(
     page: Page,
-    selector: string,
+    selector: SelectorOrLocator,
     zoomState: ZoomState,
     options: CursorOptions = {},
+    silent: boolean = false,
   ): Promise<void> {
-    const transitionMs = options.transitionMs ?? 350
-
-    // Get element center and cursor style WITHOUT suspending zoom.
-    // getBoundingClientRect returns screen coordinates (affected by CSS transform).
+    // Get element bounding box via Playwright locator (supports all selector engines).
+    // boundingBox returns screen coordinates (affected by CSS transform).
     // We reverse the transform to get the true layout coordinates for the cursor overlay.
-    const result = await page.evaluate(
-      ({ sel, scale, tx, ty }: { sel: string; scale: number; tx: number; ty: number }) => {
-        const el =
-          sel.startsWith('//') || sel.startsWith('..')
-            ? (document.evaluate(
-                sel,
-                document,
-                null,
-                XPathResult.FIRST_ORDERED_NODE_TYPE,
-                null,
-              ).singleNodeValue as Element | null)
-            : document.querySelector(sel)
-        if (!el) return null
-        const rect = el.getBoundingClientRect()
+    const locator =
+      typeof selector === 'string' ? page.locator(selector) : selector
+    const box = await locator.boundingBox()
+    if (!box) return
 
-        // Screen coords (with zoom transform applied)
-        const screenX = rect.x + rect.width / 2
-        const screenY = rect.y + rect.height / 2
+    const { scale, tx, ty } = zoomState
 
-        // Reverse the CSS transform: screen = (layout + tx) * scale
-        // So: layout = screen / scale - tx
-        const layoutX = scale === 1 ? screenX : screenX / scale - tx
-        const layoutY = scale === 1 ? screenY : screenY / scale - ty
+    // Screen coords (with zoom transform applied)
+    const screenX = box.x + box.width / 2
+    const screenY = box.y + box.height / 2
 
-        // Detect cursor style from the target element
-        let cursorStyle: string = 'default'
-        const computed = window.getComputedStyle(el).cursor
-        if (computed === 'pointer' || computed === 'text') {
-          cursorStyle = computed
-        } else if (computed === 'auto' || computed === '' || computed === 'default') {
-          const tag = el.tagName.toLowerCase()
-          if (
-            tag === 'a' || tag === 'button' || tag === 'select' || tag === 'summary' ||
-            el.closest('a') || el.closest('button') ||
-            el.getAttribute('role') === 'button' ||
-            el.getAttribute('role') === 'link'
-          ) {
-            cursorStyle = 'pointer'
-          } else if (tag === 'textarea' || (el as HTMLElement).isContentEditable) {
-            cursorStyle = 'text'
-          } else if (tag === 'input') {
-            const inputType = ((el as HTMLInputElement).type || 'text').toLowerCase()
-            const textTypes = ['text', 'search', 'url', 'tel', 'email', 'password', 'number', '']
-            cursorStyle = textTypes.includes(inputType) ? 'text' : 'pointer'
-          }
-        }
+    // Reverse the CSS transform: screen = (layout + tx) * scale
+    // So: layout = screen / scale - tx
+    const layoutX = scale === 1 ? screenX : screenX / scale - tx
+    const layoutY = scale === 1 ? screenY : screenY / scale - ty
 
-        return {
-          x: layoutX,
-          y: layoutY,
-          cursorStyle,
-        }
-      },
-      { sel: selector, scale: zoomState.scale, tx: zoomState.tx, ty: zoomState.ty },
-    )
+    // Detect cursor style from the target element (runs on the already-located element).
+    // Touch mode skips auto-detection — the touch cursor never switches styles.
+    const cursorStyle =
+      options?.style === 'touch'
+        ? 'touch'
+        : await locator.evaluate((el) => {
+            let style: string = 'default'
+            const computed = window.getComputedStyle(el).cursor
+            if (computed === 'pointer' || computed === 'text') {
+              style = computed
+            } else if (
+              computed === 'auto' ||
+              computed === '' ||
+              computed === 'default'
+            ) {
+              const tag = el.tagName.toLowerCase()
+              if (
+                tag === 'a' ||
+                tag === 'button' ||
+                tag === 'select' ||
+                tag === 'summary' ||
+                el.closest('a') ||
+                el.closest('button') ||
+                el.getAttribute('role') === 'button' ||
+                el.getAttribute('role') === 'link'
+              ) {
+                style = 'pointer'
+              } else if (
+                tag === 'textarea' ||
+                (el as HTMLElement).isContentEditable
+              ) {
+                style = 'text'
+              } else if (tag === 'input') {
+                const inputType = (
+                  (el as HTMLInputElement).type || 'text'
+                ).toLowerCase()
+                const textTypes = [
+                  'text',
+                  'search',
+                  'url',
+                  'tel',
+                  'email',
+                  'password',
+                  'number',
+                  '',
+                ]
+                style = textTypes.includes(inputType) ? 'text' : 'pointer'
+              }
+            }
+            return style
+          })
 
-    if (!result) return
+    const result = { x: layoutX, y: layoutY, cursorStyle }
 
-    // Scale from CSS pixels to video pixels
-    const x = result.x * this.scale
-    const y = result.y * this.scale
+    const x = result.x
+    const y = result.y
 
+    const transitionMs = this.computeTransitionMs(x, y, options.transitionMs)
     this.cursorPos = { x, y }
 
     this.events.push({
@@ -115,6 +145,7 @@ export class CursorTrackerImpl implements CursorTracker {
       y,
       transitionMs,
       cursorStyle: result.cursorStyle as CursorStyle,
+      silent: silent || undefined,
     })
 
     // Wait for the transition duration to maintain visual pacing
@@ -129,21 +160,19 @@ export class CursorTrackerImpl implements CursorTracker {
     x: number,
     y: number,
     options: CursorOptions = {},
+    silent: boolean = false,
   ): Promise<void> {
-    const transitionMs = options.transitionMs ?? 350
-
-    // Scale from CSS pixels to video pixels
-    const sx = x * this.scale
-    const sy = y * this.scale
-
-    this.cursorPos = { x: sx, y: sy }
+    const transitionMs = this.computeTransitionMs(x, y, options.transitionMs)
+    this.cursorPos = { x, y }
 
     this.events.push({
       time: this.elapsed(),
       type: 'move',
-      x: sx,
-      y: sy,
+      x,
+      y,
       transitionMs,
+      cursorStyle: options.style as CursorStyle | undefined,
+      silent: silent || undefined,
     })
 
     await page.waitForTimeout(transitionMs + 50)
@@ -158,8 +187,8 @@ export class CursorTrackerImpl implements CursorTracker {
       type: 'ripple',
       x: this.cursorPos.x,
       y: this.cursorPos.y,
-      rippleSize: (options.rippleSize ?? 40) * this.scale,
-      rippleColor: options.rippleColor ?? 'rgba(59, 130, 246, 0.4)',
+      rippleSize: options.rippleSize ?? 100,
+      rippleColor: options.rippleColor ?? 'rgba(0, 0, 0, 0.4)',
     })
   }
 
@@ -190,7 +219,7 @@ export class CursorTrackerImpl implements CursorTracker {
   /**
    * Log a zoom level change so the cursor scales proportionally.
    */
-  setZoom(scale: number, durationMs: number): void {
+  setZoom(scale: number, durationMs: number, tx?: number, ty?: number): void {
     this.events.push({
       time: this.elapsed(),
       type: 'zoom',
@@ -198,6 +227,8 @@ export class CursorTrackerImpl implements CursorTracker {
       y: this.cursorPos.y,
       zoomScale: scale,
       zoomDurationMs: durationMs,
+      zoomTx: tx,
+      zoomTy: ty,
     })
   }
 
@@ -209,9 +240,9 @@ export class CursorTrackerImpl implements CursorTracker {
   }
 }
 
-/** Create a new cursor tracker instance. */
-export function createCursorTracker(scale: number = 1): CursorTrackerImpl {
-  return new CursorTrackerImpl(scale)
+/** Create a new cursor tracker instance. Pass startTime to align with video recording start. */
+export function createCursorTracker(startTime?: number): CursorTrackerImpl {
+  return new CursorTrackerImpl(startTime)
 }
 
 // ---------------------------------------------------------------------------
@@ -229,11 +260,12 @@ export function initCursorTracker(
 
 export async function moveCursorTo(
   page: Page,
-  selector: string,
+  selector: SelectorOrLocator,
   zoomState: ZoomState,
   options: CursorOptions = {},
+  silent: boolean = false,
 ): Promise<void> {
-  return defaultTracker.moveCursorTo(page, selector, zoomState, options)
+  return defaultTracker.moveCursorTo(page, selector, zoomState, options, silent)
 }
 
 export async function moveCursorToPoint(
@@ -241,8 +273,9 @@ export async function moveCursorToPoint(
   x: number,
   y: number,
   options: CursorOptions = {},
+  silent: boolean = false,
 ): Promise<void> {
-  return defaultTracker.moveCursorToPoint(page, x, y, options)
+  return defaultTracker.moveCursorToPoint(page, x, y, options, silent)
 }
 
 export async function triggerRipple(
