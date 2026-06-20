@@ -32,6 +32,11 @@ interface BaseStep {
   timeout?: number
   /** Selector or 'networkidle' condition to wait for before the action executes. */
   waitFor?: string
+  /** Voiceover narrated while this step is on screen. A string is shorthand for
+   *  `{ text }`. The step's on-screen slot is extended (the live page idles) until
+   *  the narration finishes; narration always plays at 1x even if the step's
+   *  visuals are sped up via `speed`. */
+  narrate?: string | NarrationSpec
 }
 
 export interface WaitStep extends BaseStep {
@@ -148,6 +153,38 @@ export interface SetupBlock {
   steps: Step[]
 }
 
+// --- Narration / TTS ---
+
+export type TTSFormat = 'opus' | 'mp3' | 'wav'
+
+/** Narration text plus optional per-clip voice/model overrides. */
+export interface NarrationSpec {
+  text: string
+  voice?: string
+  model?: string
+}
+
+/** A standalone narration cue not bound to a step. */
+export interface NarrationCue extends NarrationSpec {
+  /** 'start' plays before the first step; 'end' plays after the last step. */
+  at: 'start' | 'end'
+}
+
+export interface NarrationConfig {
+  /** TTS provider. Only 'openai' is supported in v1. Default: 'openai'. */
+  provider?: 'openai'
+  /** Default voice for all clips. Default: provider-specific ('alloy' for OpenAI). */
+  voice?: string
+  /** Default model for all clips. Default: provider-specific. */
+  model?: string
+  /** Audio container/codec for synthesized clips. Default: 'opus'. */
+  format?: TTSFormat
+  /** API key. Falls back to the provider's standard env var (OPENAI_API_KEY). */
+  apiKey?: string
+  /** Standalone intro/outro cues. */
+  cues?: NarrationCue[]
+}
+
 export type CursorStyle = 'default' | 'pointer' | 'text' | 'touch'
 
 export interface CursorOptions {
@@ -214,6 +251,9 @@ export interface RecordingDefinition {
   speed?: number
   outputFormat?: OutputFormat
   setup?: SetupBlock
+  /** Voiceover configuration: provider defaults and standalone intro/outro cues.
+   *  Per-step narration is set via each step's `narrate` field. */
+  narration?: NarrationConfig
   steps: Step[]
 }
 

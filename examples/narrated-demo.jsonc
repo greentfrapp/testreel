@@ -1,0 +1,74 @@
+// A narrated version of demo.jsonc — adds a synthesized voiceover synced to
+// the on-screen actions. Requires an OpenAI API key:
+//
+//   export OPENAI_API_KEY=sk-...
+//   npx testreel examples/narrated-demo.jsonc --output ./demo-output --format mp4
+//
+// Each narrated step stays on screen until its voice finishes (the live page
+// idles for the remainder). Clips are cached under <output>/.testreel-tts/, so
+// re-runs that don't change the text are instant and free.
+{
+  "url": "https://demo.playwright.dev/todomvc",
+  "viewport": { "width": 1280, "height": 720 },
+  "chrome": { "url": true },
+  "background": {
+    "gradient": { "from": "#667eea", "to": "#764ba2" },
+    "padding": 60,
+    "borderRadius": 12
+  },
+
+  "narration": {
+    "provider": "openai",
+    "voice": "alloy",
+    "format": "opus",
+    "apiKey": "${OPENAI_API_KEY}",
+    "cues": [
+      { "at": "start", "text": "Let's take a quick tour of this todo app." },
+      { "at": "end", "text": "And that's how easy it is to manage your tasks." }
+    ]
+  },
+
+  "steps": [
+    { "action": "wait", "ms": 1000 },
+
+    {
+      "action": "type",
+      "selector": ".new-todo",
+      "text": "Buy groceries",
+      "narrate": "First, let's add a task by typing it into the input."
+    },
+    { "action": "keyboard", "key": "Enter" },
+    { "action": "type", "selector": ".new-todo", "text": "Walk the dog" },
+    { "action": "keyboard", "key": "Enter" },
+
+    {
+      "action": "click",
+      "selector": ".todo-list li:nth-child(1) .toggle",
+      "narrate": "Click the checkbox to mark a task as complete."
+    },
+
+    {
+      "action": "click",
+      "selector": ".filters a[href=\"#/completed\"]",
+      "zoom": 1.5,
+      "narrate": "We can filter the list to show only completed tasks."
+    },
+    {
+      "action": "click",
+      "selector": ".clear-completed",
+      "zoom": 2,
+      "narrate": "Then clear them all out with a single click."
+    },
+
+    { "action": "click", "selector": ".filters a[href=\"#/\"]", "zoom": 1.5 },
+
+    { "action": "hover", "selector": ".todo-list li:first-child" },
+    {
+      "action": "click",
+      "selector": ".todo-list li:first-child .destroy",
+      "zoom": 2,
+      "narrate": "And remove any remaining task by hovering and clicking delete."
+    },
+    { "action": "wait", "ms": 1000 }
+  ]
+}

@@ -14,6 +14,7 @@ These optional fields are available on every action:
 | `speed` | `number` | — | Per-step speed multiplier (overrides the global `speed`). Must be > 0. |
 | `timeout` | `number` | `5000` | Timeout in ms for selector resolution. |
 | `waitFor` | `string` | — | Selector or `"networkidle"` to wait for before the action executes. Accepts any Playwright selector. |
+| `narrate` | `string` \| `{ text, voice?, model? }` | — | Voiceover for this step. The step stays on screen until the voice finishes. See [Narration](narration.md). |
 
 ## wait
 

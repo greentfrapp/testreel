@@ -86,6 +86,9 @@
     "setup": {
       "$ref": "#/$defs/SetupBlock"
     },
+    "narration": {
+      "$ref": "#/$defs/NarrationConfig"
+    },
     "steps": {
       "type": "array",
       "minItems": 1,
@@ -95,6 +98,33 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "NarrationConfig": {
+      "type": "object",
+      "description": "Voiceover configuration: TTS provider defaults and standalone intro/outro cues. Per-step narration is set via each step's 'narrate' field.",
+      "properties": {
+        "provider": { "type": "string", "enum": ["openai"], "description": "TTS provider. Default: 'openai'." },
+        "voice": { "type": "string", "description": "Default voice for all clips. Default: 'alloy'." },
+        "model": { "type": "string", "description": "Default model for all clips. Default: 'gpt-4o-mini-tts'." },
+        "format": { "type": "string", "enum": ["opus", "mp3", "wav"], "description": "Audio container for synthesized clips. Default: 'opus'." },
+        "apiKey": { "type": "string", "description": "API key. Falls back to OPENAI_API_KEY env var. Supports ${ENV_VAR} substitution." },
+        "cues": {
+          "type": "array",
+          "description": "Standalone intro/outro narration cues.",
+          "items": {
+            "type": "object",
+            "required": ["at", "text"],
+            "properties": {
+              "at": { "type": "string", "enum": ["start", "end"], "description": "'start' plays before the first step; 'end' plays after the last step." },
+              "text": { "type": "string", "minLength": 1 },
+              "voice": { "type": "string" },
+              "model": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "Viewport": {
       "type": "object",
       "required": ["width", "height"],
@@ -210,7 +240,23 @@
         "pauseAfter": { "type": "number", "description": "Pause in milliseconds after this step. Default: 500." },
         "speed": { "type": "number", "exclusiveMinimum": 0, "description": "Playback speed multiplier for this step." },
         "timeout": { "type": "number", "exclusiveMinimum": 0, "description": "Timeout in milliseconds for selector resolution. Default: 2000." },
-        "waitFor": { "type": "string", "description": "Playwright selector, or 'networkidle' condition to wait for before the action executes." }
+        "waitFor": { "type": "string", "description": "Playwright selector, or 'networkidle' condition to wait for before the action executes." },
+        "narrate": {
+          "description": "Voiceover narrated while this step is on screen. A string is shorthand for { text }. The step's slot is extended until the narration finishes; narration always plays at 1x.",
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            {
+              "type": "object",
+              "required": ["text"],
+              "properties": {
+                "text": { "type": "string", "minLength": 1 },
+                "voice": { "type": "string", "description": "Per-clip voice override." },
+                "model": { "type": "string", "description": "Per-clip model override." }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
       }
     },
     "Step": {
@@ -240,7 +286,8 @@
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
-        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" },
+        "narrate": { "$ref": "#/$defs/BaseStepProperties/properties/narrate" }
       },
       "additionalProperties": false
     },
@@ -252,7 +299,8 @@
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
-        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" },
+        "narrate": { "$ref": "#/$defs/BaseStepProperties/properties/narrate" }
       },
       "additionalProperties": false
     },
@@ -265,7 +313,8 @@
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
-        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" },
+        "narrate": { "$ref": "#/$defs/BaseStepProperties/properties/narrate" }
       },
       "additionalProperties": false
     },
@@ -279,7 +328,8 @@
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
-        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" },
+        "narrate": { "$ref": "#/$defs/BaseStepProperties/properties/narrate" }
       },
       "additionalProperties": false
     },
@@ -295,7 +345,8 @@
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
-        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" },
+        "narrate": { "$ref": "#/$defs/BaseStepProperties/properties/narrate" }
       },
       "additionalProperties": false
     },
@@ -308,7 +359,8 @@
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
-        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" },
+        "narrate": { "$ref": "#/$defs/BaseStepProperties/properties/narrate" }
       },
       "additionalProperties": false
     },
@@ -322,7 +374,8 @@
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
-        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" },
+        "narrate": { "$ref": "#/$defs/BaseStepProperties/properties/narrate" }
       },
       "additionalProperties": false
     },
@@ -336,7 +389,8 @@
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
-        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" },
+        "narrate": { "$ref": "#/$defs/BaseStepProperties/properties/narrate" }
       },
       "additionalProperties": false
     },
@@ -350,7 +404,8 @@
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
-        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" },
+        "narrate": { "$ref": "#/$defs/BaseStepProperties/properties/narrate" }
       },
       "additionalProperties": false
     },
@@ -363,7 +418,8 @@
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
-        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" },
+        "narrate": { "$ref": "#/$defs/BaseStepProperties/properties/narrate" }
       },
       "additionalProperties": false
     },
@@ -376,7 +432,8 @@
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
-        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" },
+        "narrate": { "$ref": "#/$defs/BaseStepProperties/properties/narrate" }
       },
       "additionalProperties": false
     },
@@ -389,7 +446,8 @@
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
-        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" },
+        "narrate": { "$ref": "#/$defs/BaseStepProperties/properties/narrate" }
       },
       "additionalProperties": false
     },
@@ -403,7 +461,8 @@
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
-        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" },
+        "narrate": { "$ref": "#/$defs/BaseStepProperties/properties/narrate" }
       },
       "additionalProperties": false
     },
@@ -420,7 +479,8 @@
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
-        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" },
+        "narrate": { "$ref": "#/$defs/BaseStepProperties/properties/narrate" }
       },
       "additionalProperties": false
     },
@@ -433,7 +493,8 @@
         "pauseAfter": { "$ref": "#/$defs/BaseStepProperties/properties/pauseAfter" },
         "speed": { "$ref": "#/$defs/BaseStepProperties/properties/speed" },
         "timeout": { "$ref": "#/$defs/BaseStepProperties/properties/timeout" },
-        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" }
+        "waitFor": { "$ref": "#/$defs/BaseStepProperties/properties/waitFor" },
+        "narrate": { "$ref": "#/$defs/BaseStepProperties/properties/narrate" }
       },
       "additionalProperties": false
     }
