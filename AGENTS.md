@@ -66,6 +66,7 @@ When testreel is installed as a dependency, docs are at `node_modules/testreel/d
 - [Playwright Integration](./dist/docs/playwright.md) — Test fixtures (`page` and `testreelPage`), fixture composition
 - [CLI](./dist/docs/cli.md) — `testreel` command, subcommands, and options
 - [Authentication](./dist/docs/authentication.md) — Auth providers, setup blocks, session state
+- [Narration](./dist/docs/narration.md) — Text-to-speech voiceover synced to steps (providers, cues, caching)
 - [Examples](./dist/docs/examples.md) — Common patterns and recipes
 
 When working on the testreel source repo itself, docs are at `docs/` in the project root.

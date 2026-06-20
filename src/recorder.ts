@@ -3,6 +3,13 @@ import path from 'path'
 import { ACTIONS } from './actions'
 import { createCursorTracker } from './cursor'
 import { log, logError, logVerbose } from './logger'
+import {
+  type NarrationClip,
+  type PreparedNarration,
+  hasNarration,
+  mapRealToOutput,
+  prepareNarration,
+} from './narration'
 import { runPostProcessPipeline } from './pipeline'
 import { convertToGif, convertToMp4 } from './post-process'
 import { resolveAuth } from './providers'
@@ -84,6 +91,20 @@ export async function record(
     : undefined
   const zoomState = createZoomState()
   const screenshots: string[] = []
+
+  // --- Narration prep (before browser launch so a missing key/provider fails fast) ---
+  let prepared: PreparedNarration | undefined
+  if (hasNarration(def)) {
+    log('  preparing narration...')
+    prepared = await prepareNarration(def, outputDir)
+    log('  narration ready.')
+  }
+  // Real-time anchors (seconds from recording start) for each synthesized clip.
+  const narrationClips: Array<{
+    path: string
+    anchorRealSec: number
+    durationSec: number
+  }> = []
 
   // Resolve storage state if provided
   let storageState: object | undefined
@@ -332,6 +353,18 @@ export async function record(
   const stepTimings: StepTiming[] = []
   const stepTimerStart = Date.now()
 
+  // Intro cue: hold the live page (at 1x) while the intro narration plays.
+  if (prepared?.introClip) {
+    const dur = prepared.introClip.durationSec
+    narrationClips.push({
+      path: prepared.introClip.path,
+      anchorRealSec: 0,
+      durationSec: dur,
+    })
+    stepTimings.push({ stepIndex: -1, startTime: 0, endTime: dur, speed: 1 })
+    await page.waitForTimeout(Math.round(dur * 1000))
+  }
+
   for (const [i, step] of def.steps.entries()) {
     const label = step.action + ('selector' in step ? ` ${step.selector}` : '')
 
@@ -393,6 +426,47 @@ export async function record(
       endTime: stepEnd,
       speed: step.speed ?? globalSpeed,
     })
+
+    // Narration: anchor the clip at this step's start, then hold the live page
+    // (at 1x) for any remainder so the voice finishes before the next step.
+    const stepClip = prepared?.stepClips.get(i)
+    if (stepClip) {
+      narrationClips.push({
+        path: stepClip.path,
+        anchorRealSec: stepStart,
+        durationSec: stepClip.durationSec,
+      })
+      const stepSpeed = step.speed ?? globalSpeed
+      const actionOut = (stepEnd - stepStart) / stepSpeed
+      const holdOut = stepClip.durationSec - actionOut
+      if (holdOut > 0) {
+        await page.waitForTimeout(Math.round(holdOut * 1000))
+        stepTimings.push({
+          stepIndex: i,
+          startTime: stepEnd,
+          endTime: stepEnd + holdOut,
+          speed: 1,
+        })
+      }
+    }
+  }
+
+  // Outro cue: hold the live page (at 1x) while the outro narration plays.
+  if (prepared?.outroClip) {
+    const anchor = (Date.now() - stepTimerStart) / 1000
+    const dur = prepared.outroClip.durationSec
+    narrationClips.push({
+      path: prepared.outroClip.path,
+      anchorRealSec: anchor,
+      durationSec: dur,
+    })
+    stepTimings.push({
+      stepIndex: def.steps.length,
+      startTime: anchor,
+      endTime: anchor + dur,
+      speed: 1,
+    })
+    await page.waitForTimeout(Math.round(dur * 1000))
   }
 
   const totalElapsed = ((Date.now() - stepTimerStart) / 1000).toFixed(1)
@@ -477,7 +551,32 @@ export async function record(
 
   const needsSpeed =
     globalSpeed !== 1.0 || stepTimings.some((t) => t.speed !== 1.0)
-  const needsPipeline = cursorEventsForPipeline || hasFrame || needsSpeed
+
+  const outputFormat: OutputFormat =
+    options.outputFormat ?? def.outputFormat ?? 'webm'
+
+  // Build narration mux config with anchors mapped onto the output (post-speed)
+  // timeline. GIF has no audio track, so narration is skipped there.
+  let narrationForPipeline: { clips: NarrationClip[] } | undefined
+  if (narrationClips.length > 0 && videoPath) {
+    if (outputFormat === 'gif') {
+      logError(
+        '  warning: narration is ignored for GIF output (no audio track).',
+      )
+    } else {
+      const clips: NarrationClip[] = narrationClips.map((c) => ({
+        path: c.path,
+        anchorSec: needsSpeed
+          ? mapRealToOutput(c.anchorRealSec, stepTimings, globalSpeed)
+          : c.anchorRealSec,
+        durationSec: c.durationSec,
+      }))
+      narrationForPipeline = { clips }
+    }
+  }
+
+  const needsPipeline =
+    cursorEventsForPipeline || hasFrame || needsSpeed || narrationForPipeline
 
   if (needsPipeline && videoPath) {
     log('  post-processing...')
@@ -505,6 +604,7 @@ export async function record(
             }
           : undefined,
         speed: needsSpeed ? { stepTimings, globalSpeed } : undefined,
+        narration: narrationForPipeline,
         outputSize: def.outputSize,
       })
       if (processedPath !== videoPath) {
@@ -519,8 +619,6 @@ export async function record(
   }
 
   // Convert output format if not WebM
-  const outputFormat: OutputFormat =
-    options.outputFormat ?? def.outputFormat ?? 'webm'
   if (outputFormat !== 'webm' && videoPath) {
     log(`  converting to ${outputFormat}...`)
     try {

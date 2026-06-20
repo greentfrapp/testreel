@@ -792,3 +792,86 @@ describe('loadSetup', () => {
     })
   })
 })
+
+describe('narration validation', () => {
+  it('accepts a string narrate field on a step', () => {
+    const def = loadDefinition(
+      minimalDef({ steps: [{ action: 'wait', ms: 100, narrate: 'hello' }] }),
+    )
+    expect(def.steps[0]).toMatchObject({ narrate: 'hello' })
+  })
+
+  it('accepts an object narrate field with text and overrides', () => {
+    const def = loadDefinition(
+      minimalDef({
+        steps: [
+          { action: 'wait', ms: 100, narrate: { text: 'hi', voice: 'nova' } },
+        ],
+      }),
+    )
+    expect(def.steps[0]).toMatchObject({
+      narrate: { text: 'hi', voice: 'nova' },
+    })
+  })
+
+  it('rejects an empty narrate string', () => {
+    expect(() =>
+      loadDefinition(
+        minimalDef({ steps: [{ action: 'wait', ms: 100, narrate: '  ' }] }),
+      ),
+    ).toThrow(/'narrate' must be a non-empty string/)
+  })
+
+  it('rejects a narrate object without text', () => {
+    expect(() =>
+      loadDefinition(
+        minimalDef({
+          steps: [{ action: 'wait', ms: 100, narrate: { voice: 'nova' } }],
+        }),
+      ),
+    ).toThrow(/'narrate' must be a non-empty string or an object with a 'text'/)
+  })
+
+  it('accepts a valid narration block', () => {
+    const def = loadDefinition(
+      minimalDef({
+        narration: {
+          provider: 'openai',
+          voice: 'alloy',
+          format: 'opus',
+          cues: [
+            { at: 'start', text: 'Intro' },
+            { at: 'end', text: 'Outro' },
+          ],
+        },
+      }),
+    )
+    expect(def.narration?.cues).toHaveLength(2)
+  })
+
+  it('rejects an unknown narration provider', () => {
+    expect(() =>
+      loadDefinition(minimalDef({ narration: { provider: 'acme' } })),
+    ).toThrow(/unknown provider 'acme'/)
+  })
+
+  it('rejects an invalid narration format', () => {
+    expect(() =>
+      loadDefinition(minimalDef({ narration: { format: 'flac' } })),
+    ).toThrow(/'format' must be one of/)
+  })
+
+  it('rejects a cue with an invalid `at`', () => {
+    expect(() =>
+      loadDefinition(
+        minimalDef({ narration: { cues: [{ at: 'middle', text: 'x' }] } }),
+      ),
+    ).toThrow(/'at' must be 'start' or 'end'/)
+  })
+
+  it('rejects a cue without text', () => {
+    expect(() =>
+      loadDefinition(minimalDef({ narration: { cues: [{ at: 'start' }] } })),
+    ).toThrow(/missing required non-empty 'text'/)
+  })
+})

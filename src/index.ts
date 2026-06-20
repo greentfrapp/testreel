@@ -42,6 +42,10 @@ export type {
   OutputFormat,
   StepTiming,
   CursorTracker,
+  NarrationConfig,
+  NarrationCue,
+  NarrationSpec,
+  TTSFormat,
 } from './types.js'
 export type { LoginOptions } from './login.js'
 export { recordPage } from './record-page.js'

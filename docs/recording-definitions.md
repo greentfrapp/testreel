@@ -42,6 +42,7 @@ Only `url` and `steps` are required:
 | `chrome` | `boolean` \| `WindowChromeOptions` | `false` | macOS-style window chrome. See [Window chrome](#window-chrome). |
 | `background` | `boolean` \| `BackgroundOptions` | `false` | Background padding and styling. See [Background](#background). |
 | `setup` | `SetupBlock` | — | Steps to run before recording starts. See [Authentication](authentication.md). |
+| `narration` | `NarrationConfig` | — | Voiceover (TTS) provider defaults and intro/outro cues. Per-step text goes in each step's `narrate` field. See [Narration](narration.md). |
 | `storageState` | `string` | — | Path to a Playwright storage state JSON file. |
 | `cookies` | `Cookie[]` | — | Cookies to inject before navigation. |
 | `localStorage` | `Record<string, string>` | — | localStorage key-value pairs to inject. |

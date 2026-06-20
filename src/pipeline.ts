@@ -11,6 +11,7 @@ import {
 } from './chrome-renderer'
 import { CURSOR_STYLES, getCursorPng } from './cursors'
 import { getFFmpegPath } from './ffmpeg'
+import { type NarrationClip, buildNarrationAudioFilter } from './narration'
 import {
   type RippleConfig,
   VP9_FAST_FLAGS,
@@ -24,6 +25,7 @@ import {
   computeIdleHideEvents,
   runFFmpeg,
 } from './post-process'
+import { buildSpeedSegments } from './speed'
 import type {
   BackgroundOptions,
   CursorEvent,
@@ -63,6 +65,10 @@ export interface PipelineConfig {
     stepTimings: StepTiming[]
     globalSpeed: number
   }
+  /** Synthesized voiceover clips to mux onto the final timeline. */
+  narration?: {
+    clips: NarrationClip[]
+  }
   /** When set, the final output is padded/cropped to exactly this size. */
   outputSize?: { width: number; height: number }
 }
@@ -93,38 +99,12 @@ export function buildSpeedFilter(
   }
 
   // Per-step speed — piecewise setpts expression
-  const sorted = [...stepTimings].sort((a, b) => a.startTime - b.startTime)
-
-  interface Segment {
-    start: number
-    end: number
-    speed: number
-  }
-  const segments: Segment[] = []
-  let cursor = 0
-
-  for (const timing of sorted) {
-    if (timing.startTime > cursor) {
-      segments.push({
-        start: cursor,
-        end: timing.startTime,
-        speed: globalSpeed,
-      })
-    }
-    segments.push({
-      start: timing.startTime,
-      end: timing.endTime,
-      speed: timing.speed,
-    })
-    cursor = timing.endTime
-  }
-
-  let accumulatedOutput = 0
-  const segOutputOffsets: number[] = []
-  for (const seg of segments) {
-    segOutputOffsets.push(accumulatedOutput)
-    accumulatedOutput += (seg.end - seg.start) / seg.speed
-  }
+  const {
+    segments,
+    totalOut: accumulatedOutput,
+    lastRealEnd: cursor,
+  } = buildSpeedSegments(stepTimings, globalSpeed)
+  const segOutputOffsets = segments.map((s) => s.outStart)
 
   const C = '\\,'
 
@@ -167,9 +147,10 @@ export function buildSpeedFilter(
 export async function runPostProcessPipeline(
   config: PipelineConfig,
 ): Promise<string> {
-  const { videoPath, cursor, frame, speed } = config
+  const { videoPath, cursor, frame, speed, narration } = config
+  const hasNarrationAudio = !!(narration && narration.clips.length > 0)
 
-  if (!cursor && !frame && !speed) return videoPath
+  if (!cursor && !frame && !speed && !hasNarrationAudio) return videoPath
 
   const ext = path.extname(videoPath)
   const base = path.basename(videoPath, ext)
@@ -541,6 +522,24 @@ export async function runPostProcessPipeline(
     }
 
     // -----------------------------------------------------------------
+    // Stage 4: Narration audio mux
+    // -----------------------------------------------------------------
+    // Narration clips become extra inputs (indexed after all video inputs)
+    // whose delayed/mixed audio replaces the source track.
+    let narrationAudioLabel: string | undefined
+    if (hasNarrationAudio) {
+      const {
+        inputArgs: narrInputs,
+        filters,
+        audioMapLabel,
+      } = buildNarrationAudioFilter(narration!.clips, inputCount)
+      inputArgs.push(...narrInputs)
+      inputCount += narration!.clips.length
+      filterSegments.push(...filters)
+      narrationAudioLabel = audioMapLabel
+    }
+
+    // -----------------------------------------------------------------
     // Run single FFmpeg invocation
     // -----------------------------------------------------------------
     const filterGraph = filterSegments.join(';')
@@ -555,19 +554,30 @@ export async function runPostProcessPipeline(
     fs.writeFileSync(filterScriptPath, filterGraph)
     tempFiles.push(filterScriptPath)
 
-    // Drop audio when speed is active (timing would be wrong)
-    const audioArgs = speed ? ['-an'] : ['-map', '0:a?', '-c:a', 'copy']
+    // Audio: narration (muxed) wins; otherwise copy source, except under speed
+    // where the source track's timing would be wrong, so it's dropped.
+    let audioArgs: string[]
+    if (narrationAudioLabel) {
+      audioArgs = ['-map', `[${narrationAudioLabel}]`, '-c:a', 'libopus']
+    } else if (speed) {
+      audioArgs = ['-an']
+    } else {
+      audioArgs = ['-map', '0:a?', '-c:a', 'copy']
+    }
+
+    // Video: if any video filter ran, encode the graph output; if the only
+    // work was narration, copy the source video stream untouched.
+    const videoIsFiltered = currentLabel !== '0:v'
+    const videoArgs = videoIsFiltered
+      ? ['-map', `[${currentLabel}]`, '-c:v', 'libvpx-vp9', ...VP9_FAST_FLAGS]
+      : ['-map', '0:v', '-c:v', 'copy']
 
     await runFFmpeg([
       ...inputArgs,
       '-filter_complex_script',
       filterScriptPath,
-      '-map',
-      `[${currentLabel}]`,
+      ...videoArgs,
       ...audioArgs,
-      '-c:v',
-      'libvpx-vp9',
-      ...VP9_FAST_FLAGS,
       ...(probeDuration ? ['-t', String(probeDuration)] : []),
       '-y',
       outputPath,

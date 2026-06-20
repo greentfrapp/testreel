@@ -3,7 +3,12 @@ import { parse as parseJsonc } from 'jsonc-parser'
 import path from 'path'
 import { parse as parseYaml } from 'yaml'
 import { ACTIONS } from './actions'
-import type { RecordingDefinition, SetupBlock, Step } from './types'
+import type {
+  NarrationConfig,
+  RecordingDefinition,
+  SetupBlock,
+  Step,
+} from './types'
 
 const ENV_VAR_PATTERN = /\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g
 
@@ -142,7 +147,47 @@ export function loadDefinition(input: string | object): RecordingDefinition {
     validateSteps(def.setup.steps, 'Setup step')
   }
 
+  if (def.narration !== undefined) {
+    validateNarration(def.narration)
+  }
+
   return def
+}
+
+function validateNarration(narration: NarrationConfig): void {
+  if (typeof narration !== 'object' || narration === null) {
+    throw new Error("'narration' must be an object")
+  }
+  if (narration.provider !== undefined && narration.provider !== 'openai') {
+    throw new Error(
+      `Narration: unknown provider '${narration.provider}'. Supported: openai`,
+    )
+  }
+  if (narration.format !== undefined) {
+    const validFormats = ['opus', 'mp3', 'wav']
+    if (!validFormats.includes(narration.format)) {
+      throw new Error(
+        `Narration 'format' must be one of: ${validFormats.join(', ')} (got '${narration.format}')`,
+      )
+    }
+  }
+  if (narration.cues !== undefined) {
+    if (!Array.isArray(narration.cues)) {
+      throw new Error("Narration 'cues' must be an array")
+    }
+    for (const [i, cue] of narration.cues.entries()) {
+      if (cue.at !== 'start' && cue.at !== 'end') {
+        throw new Error(
+          `Narration cue ${i}: 'at' must be 'start' or 'end' (got '${cue.at}')`,
+        )
+      }
+      if (typeof cue.text !== 'string' || cue.text.trim() === '') {
+        throw new Error(
+          `Narration cue ${i}: missing required non-empty 'text' field`,
+        )
+      }
+    }
+  }
 }
 
 function validateSteps(steps: Step[], prefix: string): void {
@@ -215,6 +260,19 @@ function validateSteps(steps: Step[], prefix: string): void {
       throw new Error(
         `${prefix} ${i}: 'waitFor' must be a string (selector or 'networkidle')\n  → ${snippet}`,
       )
+    }
+    if (step.narrate !== undefined) {
+      const n = step.narrate
+      const text = typeof n === 'string' ? n : n?.text
+      if (
+        (typeof n !== 'string' && typeof n !== 'object') ||
+        typeof text !== 'string' ||
+        text.trim() === ''
+      ) {
+        throw new Error(
+          `${prefix} ${i}: 'narrate' must be a non-empty string or an object with a 'text' field\n  → ${snippet}`,
+        )
+      }
     }
     if (
       step.action === 'waitForNetwork' &&

@@ -45,6 +45,35 @@ export async function getFFmpegPath(): Promise<string> {
   return cachedPath
 }
 
+/**
+ * Probe a media file's duration in seconds by parsing ffmpeg's `Duration:` line.
+ * Returns null if the duration can't be determined.
+ */
+export async function probeDurationSec(
+  filePath: string,
+): Promise<number | null> {
+  const ffmpeg = await getFFmpegPath()
+  return new Promise((resolve) => {
+    execFile(
+      ffmpeg,
+      ['-i', filePath, '-f', 'null', '-'],
+      { timeout: 10000 },
+      (_err, _stdout, stderr) => {
+        const match = stderr.match(/Duration:\s*(\d+):(\d+):(\d+\.\d+)/)
+        if (match) {
+          resolve(
+            parseInt(match[1]) * 3600 +
+              parseInt(match[2]) * 60 +
+              parseFloat(match[3]),
+          )
+        } else {
+          resolve(null)
+        }
+      },
+    )
+  })
+}
+
 export async function runFFmpeg(
   args: string[],
   timeoutMs: number = 5 * 60 * 1000,
